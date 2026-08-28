@@ -154,6 +154,13 @@ for (const pass of passes) {
  * launch, and if it fails the suite would have failed too. It costs well under
  * a second, against the build it precedes.
  *
+ * Its scope, stated rather than implied: the launch is headless, so it covers
+ * the gate's own invocation and not `npm run e2e -- --headed`, which launches
+ * the full Chrome for Testing build instead. A headed run that finds the shell
+ * present and the full build missing gets Playwright's own error, which names
+ * the same install command. Guarding the case the gate never takes is not worth
+ * a second browser launch on every run.
+ *
  * If `@playwright/test` cannot even be imported we say nothing and let the CLI
  * stage speak for itself.
  */
