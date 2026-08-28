@@ -465,7 +465,9 @@ committed golden fixtures.
 
 **Technical context:** The fixtures must be linted through the ESLint Node API with their real on-disk paths, because the overrides are path-glob scoped — `lintText` with a synthetic filename that does not match `src/game/**` would pass and prove nothing.
 
-Sprint 2 found the trap this story would otherwise hit: `eslint.config.js` globally ignores `tests/lint/fixtures/**` (the last criterion below requires exactly that), and `ESLint#lintFiles()` *skips* globally-ignored paths — it returns a single "File ignored because of a matching ignore pattern" message and zero rule messages. The `ruleId` assertions below would therefore fail on a default instance. Construct the `ESLint` instance with **`ignore: false`**. There is a warning comment beside the `ignores` entry in `eslint.config.js` that says the same thing.
+Sprint 2 found the trap this story would otherwise hit: `eslint.config.js` globally ignores `tests/lint/fixtures/**` (the last criterion below requires exactly that), and `ESLint#lintFiles()` *skips* globally-ignored paths — it returns a single "File ignored because of a matching ignore pattern" message and zero rule messages. The `ruleId` assertions below would therefore fail on a default instance. Construct the `ESLint` instance with **`ignore: false`**.
+
+Do not expect a warning in `eslint.config.js` to remind you: the comment beside the `ignores` entry says the fixtures are "linted through the ESLint Node API against this config instead", which is precisely the assumption that fails. Sprint 2's reviewer verified the comment was never amended. This paragraph is the only record.
 
 **Acceptance criteria:**
 - [ ] Exactly four fixtures are committed: `tests/lint/fixtures/game-imports-react.ts` (boundary, logic→presentation), `tests/lint/fixtures/component-imports-engine.tsx` (boundary, presentation→engine), `tests/lint/fixtures/game-uses-date-now.ts` (`Date.now`, `performance.now`, `Math.random`), and `tests/lint/fixtures/game-uses-set-timeout.ts` (`setTimeout`).
