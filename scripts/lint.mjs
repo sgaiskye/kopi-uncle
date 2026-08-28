@@ -1,50 +1,84 @@
 #!/usr/bin/env node
 /**
- * KOPI_SCAFFOLD_PLACEHOLDER — the `npm run lint` gate stage, standing in until
- * Sprint 2 (S2-1) wires ESLint 9 flat config.
+ * The `npm run lint` gate stage — S2-1 (Sprint 2 — ESLint 9, type-aware).
  *
- * It lives in its own file so that S2-1 replaces a file it owns instead of the
- * shared `package.json`. The npm script stays `node scripts/lint.mjs` forever;
- * only this body changes.
+ * This replaces Sprint 1's placeholder. The npm script stays
+ * `node scripts/lint.mjs` forever; only this body changes, which is what let
+ * Sprints 2 and 6 wire their tools concurrently without both opening
+ * `package.json` (PRD §11.3).
  *
- * It refuses to pass vacuously: the moment an `eslint.config.*` exists, a real
- * linter is available and reporting green from here would be a lie, so this
- * exits 1 and forces the swap. That guard takes no override — the directory it
- * inspects is always this file's own parent, so nothing in the environment can
- * talk it into a green gate. The test that exercises the refusal copies this
- * script into a temporary tree and runs the copy.
+ * It runs the real linter over the whole tree with no warning budget: PRD
+ * §10.7's gate is pass/fail, so a warning nobody reads is a failure nobody
+ * reads. Extra arguments are forwarded, so `npm run lint -- --fix` works.
  *
- * Remove the KOPI_SCAFFOLD_PLACEHOLDER marker above when replacing this file —
- * the scaffold tests that assert placeholder behaviour retire on its absence.
+ * It refuses to run vacuously in the other direction too: with no
+ * `eslint.config.*` in the tree, `eslint .` would lint nothing and exit 0, so
+ * this exits 1 instead of reporting a green gate over an unconfigured linter.
  */
-import { readdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPLACED_BY = 'S2-1 (Sprint 2 — ESLint 9, type-aware)';
+const require = createRequire(import.meta.url);
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-function eslintConfigIn(dir) {
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return null;
+/**
+ * `.` rather than an explicit file list: the flat config owns which paths are
+ * linted and which are ignored, so this script never has to be edited when a
+ * sprint adds a directory.
+ */
+export const ESLINT_ARGS = Object.freeze(['.', '--max-warnings', '0']);
+
+/** The `eslint` CLI, resolved through the package rather than a guessed path. */
+function resolveEslintBin() {
+  const manifestPath = require.resolve('eslint/package.json');
+  const manifest = require('eslint/package.json');
+  return resolve(dirname(manifestPath), manifest.bin.eslint);
+}
+
+function hasFlatConfig() {
+  return readdirSync(root).some((name) => /^eslint\.config\.[cm]?[jt]s$/.test(name));
+}
+
+function main(extraArgs) {
+  if (!hasFlatConfig()) {
+    console.error(
+      'lint: no eslint.config.* in the repo root, so `eslint .` would lint nothing ' +
+        'and exit 0. Refusing to report a green gate over an unconfigured linter.',
+    );
+    return 1;
   }
-  return entries.find((name) => /^eslint\.config\.[cm]?[jt]s$/.test(name)) ?? null;
+
+  const bin = resolveEslintBin();
+  if (!existsSync(bin)) {
+    console.error('lint: the eslint CLI is missing. Run `npm ci`.');
+    return 1;
+  }
+
+  const args = [...ESLINT_ARGS, ...extraArgs];
+  console.log(`lint: eslint ${args.join(' ')}`);
+
+  const result = spawnSync(process.execPath, [bin, ...args], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+
+  if (result.error !== undefined) {
+    console.error(`lint: failed to start eslint — ${result.error.message}`);
+    return 1;
+  }
+  // A signalled child reports a null status; treat that as a failure rather
+  // than letting `process.exit(null)` become a 0.
+  return result.status ?? 1;
 }
 
-const found = eslintConfigIn(root);
+/** Only run when invoked as the gate stage — the test imports `ESLINT_ARGS`. */
+const invokedDirectly =
+  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
-if (found !== null) {
-  console.error(
-    `lint: ${found} exists, so a real linter is configured, but ${REPLACED_BY} has ` +
-      `not replaced this placeholder. Refusing to report a green gate. ` +
-      `Point this script at the real linter, or delete the config.`,
-  );
-  process.exit(1);
+if (invokedDirectly) {
+  process.exit(main(process.argv.slice(2)));
 }
-
-console.log(`lint: placeholder — no files linted. Replaced by ${REPLACED_BY}.`);
-process.exit(0);
