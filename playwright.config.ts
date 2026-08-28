@@ -18,6 +18,12 @@ import { basePathFor } from './vite.config';
  *    `/demo/` together and the suite still passes — which is the proof that a
  *    fork, a rename or a clone under any name deploys unchanged.
  *
+ * Because `GITHUB_REPOSITORY` is unset everywhere but GitHub Actions, this
+ * config resolves to `/` on every developer machine, where the base-path
+ * assertions have nothing to bite on. `scripts/e2e.mjs` therefore runs the
+ * suite twice — once under a synthetic non-root `GITHUB_REPOSITORY` and once as
+ * invoked — so the non-root case is part of the gate rather than a habit.
+ *
  * Chromium only, on purpose: `npx playwright install --with-deps chromium` is
  * the whole browser dependency, and `tests/e2e/playwright-config.test.ts`
  * asserts nothing here quietly grows a second engine.
@@ -27,9 +33,21 @@ import { basePathFor } from './vite.config';
 export const E2E_BASE_PATH = basePathFor(process.env.GITHUB_REPOSITORY);
 
 /**
- * Fixed and strict. A drifting port would let the suite silently attach to
- * whatever happened to be listening — including a stale `npm run dev` serving
- * from the root, which is the one thing this config exists to catch.
+ * Fixed and strict, and precise about what that buys.
+ *
+ * `--strictPort` constrains only the server *this config starts*: it binds this
+ * exact port or exits, rather than drifting to 4318 and leaving the runner
+ * pointed at whatever holds 4317. It does **not** stop `reuseExistingServer`
+ * from attaching to a server someone else started on this port — on that path
+ * the `npm run build` half of `command` never runs at all, so a `dist/` from an
+ * older commit, or one built under a different base, is reachable by a local
+ * gate run. `reuseExistingServer: !process.env.CI` is deliberate (it is what
+ * makes an inner loop bearable) and CI never takes that path.
+ *
+ * The protection against a wrong-base bundle is therefore not the port; it is
+ * the assertions in `tests/e2e/smoke.spec.ts`, which check where the app's own
+ * requests actually resolve, plus the non-root probe pass `scripts/e2e.mjs`
+ * runs so those assertions are never vacuous.
  */
 export const E2E_PREVIEW_PORT = 4317;
 
