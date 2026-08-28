@@ -224,6 +224,65 @@ describe('patienceMsFor — §8.5’s constants, and supper’s decay to its flo
 });
 
 /**
+ * **Ruled here, per §13's never-ask instruction, on the same grounds as
+ * `moodFor`'s `maxPatienceMs <= 0` band.**
+ *
+ * A non-finite argument is not reachable from any current code path — nothing
+ * calls these three yet — but they are on the frozen seam and Track A code that
+ * does not exist yet will call them with whatever a partially-initialised
+ * `GameState` holds. Unguarded, `NaN` survives `Math.trunc` and both clamps, so
+ * `shiftAt` indexed the table with `NaN` and all three selectors threw a
+ * `TypeError`; a `NaN` `customerIndex` was worse still, returning a `NaN` gap
+ * that would silently poison `nextArrivalMs` rather than announcing itself.
+ *
+ * The ruling: **`NaN` resolves to the first shift and to customer 1** — the
+ * gentlest point on §8.5's curve, chosen for the same reason `moodFor` picks the
+ * safest band. The infinities are ordered, so they are left to the clamps, which
+ * carry them to the ends of the range — asserted below too, so the guard cannot
+ * quietly swallow §8.5's Endless clamp.
+ */
+describe('the three selectors are total, as moodFor is', () => {
+  const NON_FINITE = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+
+  it('never throws and never returns NaN, for any pair of non-finite arguments', () => {
+    for (const shiftIndex of [...NON_FINITE, 0, SUPPER]) {
+      for (const customerIndex of [...NON_FINITE, 1]) {
+        expect(() => tierFor(shiftIndex, customerIndex)).not.toThrow();
+        expect(Number.isInteger(gapMsFor(shiftIndex, customerIndex))).toBe(true);
+        expect(Number.isInteger(patienceMsFor(shiftIndex, customerIndex))).toBe(true);
+      }
+    }
+  });
+
+  it('resolves a NaN shiftIndex to the first shift', () => {
+    expect(tierFor(Number.NaN, 1)).toBe(CONFIG.SHIFTS[BREAKFAST].tier);
+    expect(gapMsFor(Number.NaN, 1)).toBe(sec(6));
+    expect(patienceMsFor(Number.NaN, 1)).toBe(sec(18));
+  });
+
+  it('resolves a NaN customerIndex to customer 1', () => {
+    // Tea's split starts at customer 6, so customer 1 is the pre-split tier.
+    expect(tierFor(TEA, Number.NaN)).toBe(2);
+    expect(gapMsFor(SUPPER, Number.NaN)).toBe(sec(3));
+    expect(patienceMsFor(SUPPER, Number.NaN)).toBe(sec(12));
+  });
+
+  it('leaves the infinities to the clamps, so §8.5’s ends still hold', () => {
+    // +∞ is ordered, so it lands on the last row and the last customer; −∞ on
+    // the first of each. A finite index past the table still resolves to supper.
+    expect(tierFor(Number.POSITIVE_INFINITY, 1)).toBe(3);
+    expect(gapMsFor(SUPPER, Number.POSITIVE_INFINITY)).toBe(sec(2));
+    expect(patienceMsFor(SUPPER, Number.POSITIVE_INFINITY)).toBe(sec(10));
+    expect(tierFor(Number.NEGATIVE_INFINITY, 1)).toBe(1);
+    expect(gapMsFor(BREAKFAST, Number.NEGATIVE_INFINITY)).toBe(sec(6));
+    expect(patienceMsFor(SUPPER, Number.NEGATIVE_INFINITY)).toBe(sec(12));
+    expect(tierFor(99, 1)).toBe(3);
+    expect(gapMsFor(99, 1)).toBe(sec(3));
+    expect(patienceMsFor(99, 1)).toBe(sec(12));
+  });
+});
+
+/**
  * §10.4's single-source rule, mechanised.
  *
  * The banned values are built arithmetically from §8.5's seconds, so this file
@@ -236,8 +295,10 @@ describe('patienceMsFor — §8.5’s constants, and supper’s decay to its flo
  *   a screen or waits for a transition. Those are test durations, not §8 tuning
  *   values, and forcing an observation window to read from the engine's config
  *   would couple a browser test to the difficulty curve.
- * - `tests/fixtures/**\/*.json` holds §10.7's committed golden files, which are
- *   *recorded output* — regenerated when config is tuned, never hand-restated.
+ * - `tests/fixtures/**` — the whole directory, whatever the extension, matching
+ *   `EXCLUDED` below. It holds §10.7's committed golden files, which are
+ *   *recorded output* — regenerated when config is tuned, never hand-restated —
+ *   and §10.4 excludes test fixtures by name.
  *
  * Everything else is in scope, including hand-written fixture modules such as
  * `src/dev/fixtures.ts`, which S9-1 names this test as the guard for.

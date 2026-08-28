@@ -73,6 +73,16 @@ export interface GameConfig {
  * Freezes the object graph, not just its root, so §10.3's `Object.freeze`
  * requirement holds for the shift table entries too. Asserted recursively by
  * `tests/contract/config.test.ts`.
+ *
+ * **No cycle guard, deliberately.** It is applied to exactly one value — the
+ * object literal below, in the same statement that declares it — and an object
+ * literal cannot reference itself, so the graph is a finite tree by
+ * construction. A `WeakSet` would add a branch that no input can ever take,
+ * which §10.7's 100%-branch rule would then be unable to cover. This function is
+ * module-private and its only call site is the next statement; if a second call
+ * site ever appears, or the literal grows a self-reference, the guard becomes
+ * both necessary and coverable. The *test's* walk is cycle-safe because it is
+ * written against `unknown`, where that guarantee does not hold.
  */
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object') {
@@ -156,17 +166,45 @@ export const CONFIG: GameConfig = deepFreeze<GameConfig>({
  * so supper is the shift any index at or past the end of the table resolves to —
  * which is what makes §8.5's "supper repeats indefinitely" a clamp rather than a
  * special case.
+ *
+ * **Ruled here, per §13's never-ask instruction, on the same grounds as
+ * `moodFor`'s `maxPatienceMs <= 0` band: `NaN` resolves to the first shift, and
+ * to customer 1 in the selectors below.** An infinity is *ordered*, so the
+ * existing clamps carry it to an end of the range and it needs no band of its
+ * own. `NaN` is not ordered, and it survives both `Math.trunc` and a
+ * `Math.min`/`Math.max` clamp: unguarded, the table lookup was `undefined` and
+ * all three selectors threw a `TypeError`, while a `NaN` `customerIndex`
+ * returned a `NaN` gap that would silently poison `nextArrivalMs` rather than
+ * announcing itself. These selectors are on the frozen seam and callable by
+ * track code that does not exist yet, so they are total for the same reason
+ * `moodFor` is.
  */
 function shiftAt(shiftIndex: number): ShiftConfig {
   const last = CONFIG.SHIFTS.length - 1;
-  return CONFIG.SHIFTS[Math.min(Math.max(Math.trunc(shiftIndex), 0), last)];
+  const index = Number.isNaN(shiftIndex) ? 0 : Math.trunc(shiftIndex);
+  return CONFIG.SHIFTS[Math.min(Math.max(index, 0), last)];
+}
+
+/**
+ * A finite, ordered customer index — see the ruling on `shiftAt`. Each selector
+ * then applies its own `1…N` clamp, which this deliberately does not duplicate.
+ *
+ * `NaN` becomes 1. An infinity is *ordered*, so it is left to those clamps — with
+ * one exception: the upper end is capped to a finite value, because
+ * `patienceMsFor` multiplies the index by a decay that is `0` for three of the
+ * four shifts, and `0 * Infinity` is `NaN`. The cap is far past any reachable
+ * customer number, so no real index is affected.
+ */
+function customerAt(customerIndex: number): number {
+  if (Number.isNaN(customerIndex)) return 1;
+  return Math.min(customerIndex, Number.MAX_SAFE_INTEGER);
 }
 
 /** §8.6's tier budget for a given 1-based customer of a given shift. */
 export function tierFor(shiftIndex: number, customerIndex: number): Tier {
   const shift = shiftAt(shiftIndex);
   const split = shift.tierSplit;
-  if (split !== null && customerIndex >= split.fromCustomer) {
+  if (split !== null && customerAt(customerIndex) >= split.fromCustomer) {
     return split.tier;
   }
   return shift.tier;
@@ -181,7 +219,7 @@ export function tierFor(shiftIndex: number, customerIndex: number): Tier {
  */
 export function gapMsFor(shiftIndex: number, customerIndex: number): number {
   const shift = shiftAt(shiftIndex);
-  const i = Math.min(Math.max(customerIndex, 1), shift.customers);
+  const i = Math.min(Math.max(customerAt(customerIndex), 1), shift.customers);
   return Math.round(
     shift.gapStartMs + ((shift.gapEndMs - shift.gapStartMs) * (i - 1)) / (shift.customers - 1),
   );
@@ -198,7 +236,7 @@ export function gapMsFor(shiftIndex: number, customerIndex: number): number {
  */
 export function patienceMsFor(shiftIndex: number, customerIndex: number): number {
   const shift = shiftAt(shiftIndex);
-  const i = Math.max(customerIndex, 1);
+  const i = Math.max(customerAt(customerIndex), 1);
   return Math.max(
     shift.patienceMs - shift.patienceDecayPerCustomerMs * (i - 1),
     shift.patienceFloorMs,

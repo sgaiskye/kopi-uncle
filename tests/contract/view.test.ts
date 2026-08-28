@@ -30,6 +30,7 @@ import {
   SLOT_VALUES,
   VALID_DRINKS,
 } from './drinks';
+import { importSpecifiers, stripComments } from './source';
 
 /** A §7.1 all-defaults `Kopi`, the R1 builder state, as the base for overrides. */
 const PLAIN_KOPI: Drink = {
@@ -57,13 +58,37 @@ describe('§10.5 — the frozen export surface', () => {
     );
   });
 
+  /**
+   * §10.5 and Sprint 7's `no-restricted-imports` rule state a **denylist**: what
+   * `view.ts` may never reach for. This asserts that, and deliberately does not
+   * pin the import list to an exact set.
+   *
+   * The distinction is load-bearing rather than stylistic. Later sprints are
+   * *required* to add imports to this module — S15-1 makes `view.ts` re-export
+   * four display helpers from `grammar.ts`, which cannot be done without a
+   * `from './grammar'` specifier — while also requiring that the M0 view tests
+   * stay green with no edits. `tests/contract/**` is Sprint 3's, so an exact
+   * equality here would be a landmine in a file the sprint that trips it is
+   * forbidden to defuse. Every property below holds for the life of the module.
+   */
   it('imports nothing from the engine, React or the DOM (§10.5, Sprint 7’s rule)', () => {
-    const specifiers = [...SOURCE.matchAll(/from\s+'([^']+)'/g)].map((match) => match[1]);
-    // Only the type surface. Sprint 7's `no-restricted-imports` boundary rule is
-    // written against exactly this shape and must be green over it once it lands.
-    expect(specifiers).toEqual(['./types']);
-    for (const banned of ['engine', 'react', 'react-dom', 'document', 'window']) {
-      expect(SOURCE.toLowerCase()).not.toContain(`'${banned}`);
+    const specifiers = importSpecifiers(SOURCE);
+    // Not vacuous: the type surface is imported, so the list is never empty.
+    expect(specifiers).toContain('./types');
+    for (const specifier of specifiers) {
+      // Sibling modules inside `src/game/` only — no package, and no path that
+      // climbs out of the game core towards `src/app/` or `src/dev/`.
+      expect(specifier, specifier).toMatch(/^\.\/[a-z][a-z0-9-]*$/);
+    }
+    for (const banned of ['./engine', 'react', 'react-dom']) {
+      expect(specifiers, banned).not.toContain(banned);
+    }
+    // The DOM is reached through globals rather than imports, so it needs a
+    // separate check — over code with comments stripped, so that prose about
+    // the rule cannot break the rule.
+    const code = stripComments(SOURCE);
+    for (const global of ['document', 'window', 'navigator', 'localStorage']) {
+      expect(code, global).not.toMatch(new RegExp(`\\b${global}\\b`));
     }
   });
 });

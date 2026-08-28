@@ -18,6 +18,7 @@ import { CONFIG } from '../../src/game/config';
 import * as engine from '../../src/game/engine';
 import { applyAction, createInitialState, tick } from '../../src/game/engine';
 import type { Action, GameState, Mode } from '../../src/game/types';
+import { importSpecifiers, stripComments } from './source';
 
 const SOURCE = readFileSync(new URL('../../src/game/engine.ts', import.meta.url), 'utf8');
 
@@ -78,9 +79,27 @@ describe('§10.5 — the three signatures, and only those three', () => {
     expect(SOURCE).toContain('applyAction(state: GameState, action: Action): GameState');
   });
 
-  it('imports only the type surface — no config, no view, no React, no DOM', () => {
-    const specifiers = [...SOURCE.matchAll(/from\s+'([^']+)'/g)].map((match) => match[1]);
-    expect(specifiers).toEqual(['./types']);
+  /**
+   * A denylist, for the same reason `view.test.ts` uses one: S3-4 asks for the
+   * engine to be free of React and the DOM, not for its import list to be frozen
+   * at today's set. Sprint 21 must add `./config` the moment §10.4 forbids it
+   * from restating a §8 number, and `./generator` when §7.5 puts `generateOrder`
+   * there — and `tests/contract/**` is Sprint 3's, not Sprint 21's. The purity
+   * check further down this file is the model: a rule §10.3 makes permanent.
+   */
+  it('imports only from src/game — no React, no DOM', () => {
+    const specifiers = importSpecifiers(SOURCE);
+    expect(specifiers).toContain('./types');
+    for (const specifier of specifiers) {
+      expect(specifier, specifier).toMatch(/^\.\/[a-z][a-z0-9-]*$/);
+    }
+    for (const banned of ['react', 'react-dom']) {
+      expect(specifiers, banned).not.toContain(banned);
+    }
+    const code = stripComments(SOURCE);
+    for (const global of ['document', 'window', 'navigator', 'localStorage']) {
+      expect(code, global).not.toMatch(new RegExp(`\\b${global}\\b`));
+    }
   });
 });
 
@@ -163,11 +182,12 @@ describe('the stub cannot be mistaken for a working engine', () => {
         caught = error;
       }
       expect(caught).toBeInstanceOf(Error);
-      // Narrowed rather than cast: an `unknown` that is not an `Error` must fail
-      // the assertion above rather than be asserted into one here.
-      if (!(caught instanceof Error)) throw new Error('unreachable: asserted above');
-      expect(caught.message).toMatch(/NotImplemented/);
-      expect(caught.name).toBe('Error');
+      // `Error.prototype.toString` is `${name}: ${message}`, so this one
+      // assertion pins both the name (a plain `Error`, not a subclass) and the
+      // message — with no cast and, crucially, no `if`/`throw` arm that can
+      // never execute. §10.7 bans that shape in `src/`, and a test asserting
+      // §10.7's discipline should not be written in the shape it bans.
+      expect(String(caught)).toMatch(/^Error: NotImplemented/);
     }
   });
 

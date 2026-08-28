@@ -8,7 +8,9 @@
  * inside the Vitest run. A drifted contract is therefore a gate failure twice
  * over rather than a review opinion.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, expectTypeOf } from 'vitest';
 import {
   setSlot,
@@ -32,6 +34,10 @@ import {
   type Vessel,
 } from '../../src/game/types';
 import { SLOT_ORDER, SLOT_VALUES, VALID_DRINKS } from './drinks';
+import { castsIn } from './source';
+
+/** §10.3's cast budget is stated for the whole of `src/game/`, so scan it all. */
+const GAME_DIR = fileURLToPath(new URL('../../src/game/', import.meta.url));
 
 describe('§10.3 unions', () => {
   it('declares Phase, Mode, Tier, ShiftId, Mood and ServeResult verbatim', () => {
@@ -186,6 +192,11 @@ describe('§10.3 Action', () => {
     // for exactly that reason. Both assertions here are compile-time only.
     expectTypeOf(EXHAUSTIVE_OVER_ACTION).toBeNever();
     expectTypeOf<UnhandledActionType>().toBeNever();
+    // `expectTypeOf` is erased, so without this the body would pass even if it
+    // were deleted. The proof stays the compile-time pair (TS1360 here, TS2344
+    // on `types.ts`'s own constraint); this is what makes the *test* non-vacuous
+    // and keeps the assignment it names from being dead-code-eliminated.
+    expect(EXHAUSTIVE_OVER_ACTION).toBeUndefined();
   });
 
   it('carries the payloads §10.3 specifies', () => {
@@ -251,11 +262,41 @@ describe('§10.3 setSlot', () => {
     // writing the assertion anyway would be flagged by
     // `@typescript-eslint/no-unnecessary-type-assertion` once Sprint 2's
     // type-aware linter lands. What must never happen is a *second* cast
-    // appearing here, so the budget is asserted rather than the exact count.
-    const source = readFileSync(new URL('../../src/game/types.ts', import.meta.url), 'utf8');
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    const assertions = code.match(/\bas\s+(?!const\b)[A-Za-z_$]/g) ?? [];
-    expect(assertions.length).toBeLessThanOrEqual(1);
+    // appearing, so the budget is asserted rather than the exact count.
+    //
+    // The budget `types.ts` claims is for the whole of `src/game/`, so the scan
+    // covers the whole directory rather than only the file that states it:
+    // a cast smuggled into `config.ts`, `view.ts` or `engine.ts` — the three
+    // files later sprints edit — spends the same single allowance.
+    const files = readdirSync(GAME_DIR).filter((entry) => entry.endsWith('.ts'));
+    // Not vacuous: the four §10.5 files at minimum, and `types.ts` among them.
+    expect(files.length).toBeGreaterThanOrEqual(4);
+    expect(files).toContain('types.ts');
+
+    const spent = files.flatMap((file) =>
+      castsIn(readFileSync(join(GAME_DIR, file), 'utf8')).map((cast) => `${file}: ${cast}`),
+    );
+    expect(spent.length, `casts found — ${spent.join(', ')}`).toBeLessThanOrEqual(1);
+  });
+
+  it('detects all three cast forms, so the budget cannot be spent around it', () => {
+    // The guard is only worth its line if it recognises the ways a cast can be
+    // written. Probed against the scanner rather than asserted by inspection.
+    expect(castsIn('const a = b as Drink;\n')).toEqual(['as Drink']);
+    expect(castsIn('const a = <Drink>b;\n')).toEqual(['<Drink>b']);
+    expect(castsIn('const a = b.c!;\n')).toEqual(['c!']);
+    // And the things that are not casts stay unflagged.
+    for (const notACast of [
+      'const a = [1] as const;\n',
+      'const a = deepFreeze<GameConfig>({});\n',
+      'type A<T> = Readonly<Record<string, T>>;\n',
+      'if (a !== b) return;\n',
+      'if (!(a > 0)) return;\n',
+      '// treated as Drink by the caller\n',
+      "const message = 'counts as Drink';\n",
+    ]) {
+      expect(castsIn(notACast), notACast.trim()).toEqual([]);
+    }
   });
 
   it('does not mutate its input', () => {
