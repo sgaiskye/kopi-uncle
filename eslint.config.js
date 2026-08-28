@@ -74,15 +74,22 @@ export default [
     ...tseslint.configs.disableTypeChecked,
   },
 
-  // `src/game/` is required to be importable in Node with no browser globals
-  // (PRD §10.2), so the browser globals stop at the React layer. Sprint 7 turns
-  // the same boundary into an import rule; this is only about `no-undef`.
+  // Node globals for the plain-JavaScript files, and *only* for them.
+  //
+  // `globals` exists to feed `no-undef`, and `no-undef` is off for every
+  // `.ts`/`.tsx` file: typescript-eslint's `eslint-recommended` layer, pulled
+  // in by `recommendedTypeChecked` above, disables it because `tsc` already
+  // proves the same thing with better information. So a `globals.browser`
+  // block over `src/app/**` would resolve to nothing enforceable, and an
+  // earlier revision of this file carried one with a comment claiming it kept
+  // browser globals out of `src/game/` per PRD §10.2. It did not — a probe in
+  // `src/game/` reading `window.innerWidth` linted clean through it. That
+  // boundary is S7-1's, enforced with `no-restricted-imports` over the module
+  // graph, which is the only mechanism that can actually check it.
+  //
+  // `no-undef` *is* live for `.js`/`.mjs`, so this block is the one that bites.
   {
-    files: ['src/app/**', 'src/components/**', 'src/graphics/**', 'src/storage/**', 'src/*.tsx'],
-    languageOptions: { globals: globals.browser },
-  },
-  {
-    files: [...JS_FILES, 'tests/**', 'vite.config.ts', 'vitest.config.ts'],
+    files: JS_FILES,
     languageOptions: { globals: globals.node },
   },
 

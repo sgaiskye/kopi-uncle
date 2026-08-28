@@ -11,12 +11,26 @@
  * §10.7's gate is pass/fail, so a warning nobody reads is a failure nobody
  * reads. Extra arguments are forwarded, so `npm run lint -- --fix` works.
  *
- * It refuses to run vacuously in the other direction too: with no
- * `eslint.config.*` in the tree, `eslint .` would lint nothing and exit 0, so
- * this exits 1 instead of reporting a green gate over an unconfigured linter.
+ * **Every exit path is either ESLint's own or an explicit non-zero refusal.**
+ * There is deliberately no "am I the entry point?" guard. The first revision of
+ * this file gated the run on `resolve(process.argv[1]) === fileURLToPath(
+ * import.meta.url)` so that a test could import `ESLINT_ARGS` without linting.
+ * Node realpaths the ESM entry point but not `argv[1]`, so under any symlinked
+ * invocation path — `/tmp` → `/private/tmp` on macOS, a symlinked checkout, a
+ * Docker bind mount, a CI workspace staged behind a link — the comparison was
+ * false, the module fell off the end, and `npm run lint` exited 0 having linted
+ * nothing. A silently green gate is the one failure this file exists to
+ * prevent, so the guard is gone and the tests read the arguments off the banner
+ * printed below instead of importing them.
+ *
+ * The two refusals, both non-zero and both loud:
+ *   - no `eslint.config.*` in the tree — `eslint .` would lint nothing and exit
+ *     0, so refuse rather than report green over an unconfigured linter;
+ *   - the ESLint CLI cannot be resolved — say so in one line instead of
+ *     surfacing a ten-frame `MODULE_NOT_FOUND` stack.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,13 +44,34 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * linted and which are ignored, so this script never has to be edited when a
  * sprint adds a directory.
  */
-export const ESLINT_ARGS = Object.freeze(['.', '--max-warnings', '0']);
+const ESLINT_ARGS = ['.', '--max-warnings', '0'];
 
-/** The `eslint` CLI, resolved through the package rather than a guessed path. */
+/**
+ * The `eslint` CLI, resolved through the package rather than a guessed path, so
+ * a non-flat `node_modules` layout still works. Returns `null` rather than
+ * throwing, so the caller owns the message. npm's manifest permits `bin` as
+ * either a bare string or an object, and both are handled.
+ */
 function resolveEslintBin() {
-  const manifestPath = require.resolve('eslint/package.json');
-  const manifest = require('eslint/package.json');
-  return resolve(dirname(manifestPath), manifest.bin.eslint);
+  let manifestPath;
+  try {
+    manifestPath = require.resolve('eslint/package.json');
+  } catch {
+    return null;
+  }
+
+  let bin;
+  try {
+    ({ bin } = JSON.parse(readFileSync(manifestPath, 'utf8')));
+  } catch {
+    return null;
+  }
+
+  const relativeBin = typeof bin === 'string' ? bin : bin?.eslint;
+  if (typeof relativeBin !== 'string') {
+    return null;
+  }
+  return resolve(dirname(manifestPath), relativeBin);
 }
 
 function hasFlatConfig() {
@@ -53,8 +88,8 @@ function main(extraArgs) {
   }
 
   const bin = resolveEslintBin();
-  if (!existsSync(bin)) {
-    console.error('lint: the eslint CLI is missing. Run `npm ci`.');
+  if (bin === null) {
+    console.error('lint: the eslint CLI could not be resolved. Run `npm ci`.');
     return 1;
   }
 
@@ -75,10 +110,4 @@ function main(extraArgs) {
   return result.status ?? 1;
 }
 
-/** Only run when invoked as the gate stage — the test imports `ESLINT_ARGS`. */
-const invokedDirectly =
-  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (invokedDirectly) {
-  process.exit(main(process.argv.slice(2)));
-}
+process.exit(main(process.argv.slice(2)));
