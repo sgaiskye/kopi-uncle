@@ -38,11 +38,16 @@ const TYPE_SCALE = {
   '--step-64': 64,
 } as const;
 
+/** Collapses the whitespace Prettier is free to redistribute inside a value. */
+function normalise(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
 /** Every custom property declared by `tokens.css`, in declaration order. */
 function customProperties(css: string): Map<string, string> {
   const declared = new Map<string, string>();
   for (const match of css.matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;{}]+);/g)) {
-    declared.set(match[1], match[2].trim());
+    declared.set(match[1], normalise(match[2]));
   }
   return declared;
 }
@@ -99,7 +104,7 @@ describe('src/styles/tokens.css — the §9.2 palette', () => {
     const extras = [...DECLARED.entries()]
       .filter(([name]) => !(name in PALETTE))
       .filter(([, value]) =>
-        /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|color-mix|oklch|lab)\(/i.test(value),
+        /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|color-mix|oklch|oklab|lab|lch|color)\(/i.test(value),
       )
       .map(([name]) => name);
     expect(
@@ -195,6 +200,163 @@ describe('the §9.2 contrast matrix', () => {
   });
 });
 
+/*
+ * "No §9.2 hex literal outside tokens.css" is the criterion, but a hex literal
+ * is only one of the ways CSS can spell a colour. The sweep below reduces every
+ * notation it meets to 8-bit sRGB channels and compares those, so re-spelling
+ * cream as `#fff3d6ff`, `rgb(255 243 214)`, `hsl(42.44 100% 91.96%)` or
+ * `oklch(96.61% 0.04 88.2)` is caught the same way the plain hex is. A colour
+ * that is *not* in §9.2 is never flagged, so `rgba(0, 0, 0, 0.2)` for a shadow
+ * stays legal.
+ *
+ * Not covered, and deliberately: `lab()`, `lch()`, `color()` and `color-mix()`,
+ * whose conversions need a CIE white point this sweep has no reason to carry.
+ * `oklch()`/`oklab()` are covered because they are the notations a formatter or
+ * a design tool actually emits today.
+ */
+const COLOUR_NOTATION = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab)\([^()]*\)/gi;
+
+type Channels = readonly [number, number, number];
+
+function clamp255(value: number): number {
+  return Math.min(255, Math.max(0, Math.round(value)));
+}
+
+/** Linear-light sRGB to an 8-bit channel. */
+function gammaEncode(linear: number): number {
+  const encoded = linear <= 0.0031308 ? linear * 12.92 : 1.055 * linear ** (1 / 2.4) - 0.055;
+  return clamp255(encoded * 255);
+}
+
+/** A functional notation's arguments, comma-, space- or slash-separated. */
+function notationArgs(notation: string): string[] {
+  const inner = notation.slice(notation.indexOf('(') + 1, notation.lastIndexOf(')'));
+  return inner.split(/[\s,/]+/).filter((part) => part !== '');
+}
+
+/** A component that may be written as a percentage of `full`. */
+function scalar(text: string, full: number): number {
+  return text.endsWith('%') ? (Number.parseFloat(text) / 100) * full : Number.parseFloat(text);
+}
+
+/** A 0–1 component that CSS also permits as a percentage. */
+function fraction(text: string): number {
+  if (text.endsWith('%')) {
+    return Number.parseFloat(text) / 100;
+  }
+  const value = Number.parseFloat(text);
+  return value > 1 ? value / 100 : value;
+}
+
+function degrees(text: string): number {
+  const value = Number.parseFloat(text);
+  if (/turn$/i.test(text)) {
+    return value * 360;
+  }
+  if (/rad$/i.test(text)) {
+    return (value * 180) / Math.PI;
+  }
+  if (/grad$/i.test(text)) {
+    return value * 0.9;
+  }
+  return value;
+}
+
+/** Any hex form — 3, 4, 6 or 8 digits; the alpha digits are dropped. */
+function hexChannels(hex: string): Channels | null {
+  const digits = hex.slice(1);
+  const expanded =
+    digits.length === 3 || digits.length === 4 ? [...digits].map((d) => d + d).join('') : digits;
+  if (expanded.length !== 6 && expanded.length !== 8) {
+    return null;
+  }
+  const [r, g, b] = [0, 2, 4].map((i) => Number.parseInt(expanded.slice(i, i + 2), 16));
+  return [r, g, b];
+}
+
+/** CSS Color 4's HSL-to-RGB, hue in degrees, saturation and lightness in 0–1. */
+function hslChannels(hue: number, saturation: number, lightness: number): Channels {
+  const component = (n: number): number => {
+    const k = (n + hue / 30) % 12;
+    const a = saturation * Math.min(lightness, 1 - lightness);
+    return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  const [r, g, b] = [component(0), component(8), component(4)].map((v) => clamp255(v * 255));
+  return [r, g, b];
+}
+
+/** Oklab to sRGB — Ottosson's matrices, anchored by the tests below. */
+function oklabChannels(L: number, a: number, b: number): Channels {
+  const long = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const medium = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const short = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const [r, g, blue] = [
+    4.0767416621 * long - 3.3077115913 * medium + 0.2309699292 * short,
+    -1.2684380046 * long + 2.6097574011 * medium - 0.3413193965 * short,
+    -0.0041960863 * long - 0.7034186147 * medium + 1.707614701 * short,
+  ].map(gammaEncode);
+  return [r, g, blue];
+}
+
+/** One colour notation as 8-bit sRGB channels, or null if unrecognised. */
+function channelsOf(notation: string): Channels | null {
+  if (notation.startsWith('#')) {
+    return hexChannels(notation);
+  }
+  const name = notation.slice(0, notation.indexOf('(')).toLowerCase();
+  const parts = notationArgs(notation);
+  if (parts.length < 3 || parts.slice(0, 3).some((part) => !/^[+-]?[\d.]/.test(part))) {
+    return null;
+  }
+  switch (name) {
+    case 'rgb':
+    case 'rgba': {
+      const [r, g, b] = parts.slice(0, 3).map((part) => clamp255(scalar(part, 255)));
+      return [r, g, b];
+    }
+    case 'hsl':
+    case 'hsla':
+      return hslChannels(degrees(parts[0]), fraction(parts[1]), fraction(parts[2]));
+    case 'oklab':
+      return oklabChannels(fraction(parts[0]), scalar(parts[1], 0.4), scalar(parts[2], 0.4));
+    case 'oklch': {
+      const chroma = scalar(parts[1], 0.4);
+      const hue = (degrees(parts[2]) * Math.PI) / 180;
+      return oklabChannels(fraction(parts[0]), chroma * Math.cos(hue), chroma * Math.sin(hue));
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * The §9.2 token whose colour this is, within one 8-bit step — the slack covers
+ * rounding through another colour space, and nothing in §9.2 sits within one
+ * step of anything else.
+ */
+function paletteTokenFor(channels: Channels): string | null {
+  for (const [name, hex] of Object.entries(PALETTE)) {
+    const target = hexChannels(hex);
+    if (target !== null && channels.every((value, i) => Math.abs(value - target[i]) <= 1)) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/** Every §9.2 colour spelled literally in `text`, in any notation. */
+function paletteLiterals(text: string): string[] {
+  return [...text.matchAll(COLOUR_NOTATION)].flatMap((match) => {
+    const notation = match[0];
+    const parsed = channelsOf(notation);
+    if (parsed === null) {
+      return [];
+    }
+    const name = paletteTokenFor(parsed);
+    return name === null ? [] : [`${notation} (${name})`];
+  });
+}
+
 describe('the §9.2 palette is declared in exactly one place', () => {
   const SKIP_DIRS = new Set(['node_modules']);
 
@@ -208,33 +370,73 @@ describe('the §9.2 palette is declared in exactly one place', () => {
     });
   }
 
-  it('declares no §9.2 hex literal under src/ outside tokens.css', () => {
-    const hexes = Object.values(PALETTE).map((hex) => hex.slice(1).toLowerCase());
-    const pattern = new RegExp(`#(?:${hexes.join('|')})\\b`, 'gi');
-
+  it('spells no §9.2 colour under src/ outside tokens.css, in any notation', () => {
     const offenders = sourceFiles(join(ROOT, 'src'))
       .filter((path) => path !== TOKENS_CSS)
       .flatMap((path) => {
-        const matches = [...readFileSync(path, 'utf8').matchAll(pattern)].map((m) => m[0]);
-        return matches.length === 0 ? [] : [`${relative(ROOT, path)}: ${matches.join(', ')}`];
+        const hits = paletteLiterals(readFileSync(path, 'utf8'));
+        return hits.length === 0 ? [] : [`${relative(ROOT, path)}: ${hits.join(', ')}`];
       });
 
     expect(
       offenders,
-      'every §9.2 colour reaches the tree through var(--token); a hex literal ' +
-        'under src/ outside tokens.css is a copy that the contrast matrix above ' +
-        'does not govern',
+      'every §9.2 colour reaches the tree through var(--token); a literal under ' +
+        'src/ outside tokens.css is a copy that the contrast matrix above does ' +
+        'not govern, whichever notation it is written in',
     ).toEqual([]);
   });
 
-  it('has a grep that would actually catch one', () => {
-    // The assertion above passes trivially if the pattern is wrong, so prove the
-    // pattern matches the literals S1-2 inlined into TitleScreen.module.css.
-    const hexes = Object.values(PALETTE).map((hex) => hex.slice(1).toLowerCase());
-    const pattern = new RegExp(`#(?:${hexes.join('|')})\\b`, 'i');
-    expect(pattern.test('  background-color: #fff3d6;')).toBe(true);
-    expect(pattern.test('  color: #4A2C18;')).toBe(true);
-    expect(pattern.test('  color: var(--teak);')).toBe(false);
+  it('has a sweep that would actually catch one, in any notation', () => {
+    // The assertion above passes trivially if the sweep is wrong, so prove it
+    // catches the literals S1-2 inlined into TitleScreen.module.css and the
+    // re-spellings a `\b`-anchored hex grep used to walk straight past.
+    const caught = [
+      '  background-color: #fff3d6;',
+      '  color: #4A2C18;',
+      '  background: #fff3d6ff;',
+      '  background: #FFF3D680;',
+      '  background: rgb(255, 243, 214);',
+      '  background: rgb(255 243 214 / 50%);',
+      '  background: rgba(255, 243, 214, 0.5);',
+      '  color: hsl(42.44 100% 91.96%);',
+      '  color: oklch(96.61% 0.04 88.2);',
+      '  color: oklab(0.9661 0.0013 0.04);',
+      "  const outline = '#0e6b4f';",
+    ];
+    for (const line of caught) {
+      expect(paletteLiterals(line), `not caught: ${line}`).not.toEqual([]);
+    }
+
+    // A colour that is not in §9.2 is not this sweep's business.
+    const ignored = [
+      '  color: var(--teak);',
+      '  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);',
+      '  background: #ffffff;',
+      '  color: hsl(210 20% 40%);',
+      '  color: oklch(50% 0.1 200);',
+      '  font-size: var(--step-12);',
+    ];
+    for (const line of ignored) {
+      expect(paletteLiterals(line), `wrongly caught: ${line}`).toEqual([]);
+    }
+  });
+
+  it('reads every notation the sweep claims to', () => {
+    // Anchors for the conversions above, so a broken matrix cannot make the
+    // sweep pass by mapping everything to the same wrong colour. The oklch and
+    // oklab values are sRGB red as CSS Color 4 publishes it.
+    expect(channelsOf('#fff')).toEqual([255, 255, 255]);
+    expect(channelsOf('#ff000080')).toEqual([255, 0, 0]);
+    expect(channelsOf('rgb(1 2 3)')).toEqual([1, 2, 3]);
+    expect(channelsOf('rgb(100%, 0%, 0%)')).toEqual([255, 0, 0]);
+    expect(channelsOf('hsl(120 100% 50%)')).toEqual([0, 255, 0]);
+    expect(channelsOf('hsl(0.5turn 100% 50%)')).toEqual([0, 255, 255]);
+    expect(channelsOf('oklch(1 0 0)')).toEqual([255, 255, 255]);
+    expect(channelsOf('oklch(0 0 0)')).toEqual([0, 0, 0]);
+    expect(channelsOf('oklch(62.8% 0.2577 29.23)')).toEqual([255, 0, 0]);
+    expect(channelsOf('oklab(0.628 0.2249 0.1258)')).toEqual([255, 0, 0]);
+    expect(channelsOf('#12345')).toBeNull();
+    expect(channelsOf('lab(50% 40 59.5)')).toBeNull();
   });
 
   it('finds every file under src/, so the sweep is not vacuous', () => {

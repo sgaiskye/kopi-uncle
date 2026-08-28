@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -80,7 +80,9 @@ describe('both faces are subset-imported from @fontsource', () => {
     expect(css).toContain('@font-face');
     expect(css).toContain(`font-family: '${face.family}'`);
     expect(css).toContain(`font-weight: ${String(face.weight)}`);
-    // §9.3 — a slow font load must shift no layout.
+    // §9.3 — a slow font load must shift no layout. This is `@fontsource`'s own
+    // declaration and can only red if the package changes upstream; that `swap`
+    // survives into the built stylesheet is asserted against the build below.
     expect(css).toContain('font-display: swap');
     expect(css).toContain('.woff2');
 
@@ -113,13 +115,37 @@ describe('the §9.3 fallback stacks', () => {
 });
 
 /*
+ * The criterion names `dist/`, and `--outDir` overrides `build.outDir`, so the
+ * scratch build below could pass while the real one emitted somewhere else
+ * entirely. This closes that: the build the gate and the deploy workflow run
+ * writes `dist/assets/`, asserted against Vite's own resolved configuration
+ * rather than against the text of `vite.config.ts`, so a `build.outDir` added
+ * anywhere the config resolver reaches — a plugin, a mode-conditional branch —
+ * reds here.
+ */
+describe('the configured build output', () => {
+  it('resolves to dist/assets, which is what the criterion names', async () => {
+    const { resolveConfig } = await import('vite');
+    const config = await resolveConfig({ root: ROOT }, 'build');
+
+    expect(resolve(ROOT, config.build.outDir), 'the production build must emit into dist/').toBe(
+      join(ROOT, 'dist'),
+    );
+    expect(config.build.assetsDir, 'bundled assets — fonts included — live in assets/').toBe(
+      'assets',
+    );
+  });
+});
+
+/*
  * §3.3 end to end: the production build must self-host every byte of both faces.
  *
  * Built into a scratch directory outside the repository rather than into
  * `dist/`, because `tests/scaffold/build.test.ts` spawns its own builds and
  * Vitest runs the two files concurrently — sharing `dist/` would have one
  * build's `emptyOutDir` delete the output the other is reading. It is the same
- * `npm run build`, so what it emits is what `dist/` gets.
+ * `npm run build` and the same `assetsDir`, and the assertion above pins where
+ * an un-redirected build lands, so what this emits is what `dist/` gets.
  */
 describe('the production build fetches no font at runtime', () => {
   let outDir = '';
@@ -189,6 +215,19 @@ describe('the production build fetches no font at runtime', () => {
     for (const family of new Set(FACES.map((face) => face.family))) {
       expect(css).toContain(family);
     }
+
+    // §9.3's no-layout-shift promise is only kept if `swap` reaches the browser:
+    // every emitted face must carry it, and none may carry anything else. The
+    // minifier removes the whitespace, so match on the property, not the text.
+    const displays = [...css.matchAll(/font-display\s*:\s*([a-z-]+)/gi)].map((match) =>
+      match[1].toLowerCase(),
+    );
+    expect(
+      displays.length,
+      'no font-display survived into the built stylesheet, so a slow font load ' +
+        'blocks text rather than swapping (§9.3)',
+    ).toBe(FACES.length);
+    expect(new Set(displays)).toEqual(new Set(['swap']));
     // The tokens themselves have to survive the bundle, or nothing downstream
     // can resolve var(--teak).
     expect(css).toContain('--teak');

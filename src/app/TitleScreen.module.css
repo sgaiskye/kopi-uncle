@@ -44,7 +44,11 @@
 .tagline {
   margin: 0;
   font-size: var(--step-20);
-  font-style: italic;
+  /*
+   * No `font-style: italic`: §9.3 imports the `normal` Nunito Sans faces only,
+   * so an italic here would be a browser-synthesised oblique of a condensed
+   * body face rather than a drawn one. The type scale carries the emphasis.
+   */
 }
 
 .scaffoldNote {
