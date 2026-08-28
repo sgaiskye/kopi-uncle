@@ -23,6 +23,12 @@ import { importSpecifiers, stripComments } from './source';
 const SOURCE = readFileSync(new URL('../../src/game/engine.ts', import.meta.url), 'utf8');
 
 /**
+ * The ambient sources of state §10.3 puts out of reach of the engine, named once
+ * so the check and its negative control cannot drift apart.
+ */
+const BANNED_IMPURITIES = ['Date.now', 'performance.now', 'Math.random', 'setTimeout'];
+
+/**
  * A `GameState`-shaped argument for the signature assertions.
  *
  * Nothing reads it — every call below throws before touching it — but it is
@@ -194,8 +200,27 @@ describe('the stub cannot be mistaken for a working engine', () => {
   it('holds no §10.3 engine behaviour yet — nothing to mistake for an engine', () => {
     // No Date.now, no timers, no bare Math.random: §10.3's purity ban applies to
     // the stub too, and Sprint 7's lint rule must be green over this file.
-    for (const banned of ['Date.now', 'performance.now', 'Math.random', 'setTimeout']) {
-      expect(SOURCE, banned).not.toContain(banned);
+    //
+    // Read from code, like the import boundary above and for the same reason:
+    // §10.3's ban is permanent, so this check outlives the stub, and a body
+    // written under it will carry a comment saying which impurity it is avoiding
+    // — `// the caller passes dtMs; the engine never reads Date.now` is the
+    // discipline, not a breach of it. Greping raw source would make documenting
+    // the rule a violation of the rule.
+    const code = stripComments(SOURCE);
+    for (const banned of BANNED_IMPURITIES) {
+      expect(code, banned).not.toContain(banned);
+    }
+  });
+
+  it('would still catch an impurity in code, and only in code', () => {
+    // A negative control for the line above: stripping comments must not have
+    // turned the check off. Probed on synthetic sources, because the real file
+    // is required to contain neither shape.
+    for (const banned of BANNED_IMPURITIES) {
+      expect(stripComments(`const t = ${banned}();\n`), banned).toContain(banned);
+      expect(stripComments(`// never call ${banned}\n`), banned).not.toContain(banned);
+      expect(stripComments(`/* never call ${banned} */\n`), banned).not.toContain(banned);
     }
   });
 });

@@ -273,10 +273,21 @@ describe('§10.3 setSlot', () => {
     expect(files.length).toBeGreaterThanOrEqual(4);
     expect(files).toContain('types.ts');
 
-    const spent = files.flatMap((file) =>
-      castsIn(readFileSync(join(GAME_DIR, file), 'utf8')).map((cast) => `${file}: ${cast}`),
+    const texts = files.map((file) => ({ file, text: readFileSync(join(GAME_DIR, file), 'utf8') }));
+    const spent = texts.flatMap(({ file, text }) =>
+      castsIn(text).map((cast) => `${file}: ${cast}`),
     );
     expect(spent.length, `casts found — ${spent.join(', ')}`).toBeLessThanOrEqual(1);
+
+    // Not vacuous in the other direction either. A scanner that stopped reading
+    // part-way through a file — the way an unlexed regex literal's quote once
+    // made it — reports an empty list, and this bound then holds whatever the
+    // files contain. So every file is scanned a second time with a cast appended,
+    // and the cast has to be found: proof the scan reaches the end of each of
+    // them and that the check above was looking at the whole file.
+    for (const { file, text } of texts) {
+      expect(castsIn(`${text}\nconst probe = value as Drink;\n`), file).toContain('as Drink');
+    }
   });
 
   it('detects all three cast forms, so the budget cannot be spent around it', () => {
@@ -285,6 +296,20 @@ describe('§10.3 setSlot', () => {
     expect(castsIn('const a = b as Drink;\n')).toEqual(['as Drink']);
     expect(castsIn('const a = <Drink>b;\n')).toEqual(['<Drink>b']);
     expect(castsIn('const a = b.c!;\n')).toEqual(['c!']);
+    // A cast does not have to be the whole of a statement. Each of these spends
+    // the budget exactly as the three above do, and the name of this test is a
+    // promise that none of them is a way around it — an argument position in
+    // particular, where a `!` is followed by the `)` that closes the call.
+    expect(castsIn('serve(active!);\n')).toEqual(['e!']);
+    expect(castsIn('serve(queue[0]!);\n')).toEqual([']!']);
+    expect(castsIn('serve(head()!);\n')).toEqual([')!']);
+    expect(castsIn('const a = <Drink>(b);\n')).toEqual(['<Drink>(']);
+    // A regular-expression literal is not a way around it either. Its quote used
+    // to open a string that never closed, after which the scan returned nothing
+    // for the rest of the file and this guard passed on a file that had spent the
+    // budget. `source.ts` now lexes regexes; `source.test.ts` probes that
+    // directly, and this is the consequence the budget cares about.
+    expect(castsIn(`const QUOTED = /['"]/;\nconst a = b as Drink;\n`)).toEqual(['as Drink']);
     // And the things that are not casts stay unflagged.
     for (const notACast of [
       'const a = [1] as const;\n',
@@ -292,8 +317,19 @@ describe('§10.3 setSlot', () => {
       'type A<T> = Readonly<Record<string, T>>;\n',
       'if (a !== b) return;\n',
       'if (!(a > 0)) return;\n',
+      'if (!list.length) return;\n',
+      'serve(!wrong);\n',
       '// treated as Drink by the caller\n',
       "const message = 'counts as Drink';\n",
+      // A generic arrow *declares* a type parameter where a cast *asserts* one.
+      // Both open `<T>(`, so the two are told apart by the `=>` that closes the
+      // parameter list. §10.3 does not ration generics, and Sprint 15's display
+      // helpers are free to be written this way.
+      'const identity = <T>(x: T) => x;\n',
+      'const identity = <T>(x: T): T => x;\n',
+      'const frozen = <T>(x: T): Readonly<T> => x;\n',
+      'const first = <T>(xs: readonly T[], pick: (x: T) => boolean) => xs.find(pick);\n',
+      'const none = <T>() => undefined;\n',
     ]) {
       expect(castsIn(notACast), notACast.trim()).toEqual([]);
     }
