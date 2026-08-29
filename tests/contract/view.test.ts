@@ -30,7 +30,7 @@ import {
   SLOT_VALUES,
   VALID_DRINKS,
 } from './drinks';
-import { importSpecifiers, stripComments } from './source';
+import { DOM_GLOBALS, domGlobalsIn, importSpecifiers } from './source';
 
 /** A §7.1 all-defaults `Kopi`, the R1 builder state, as the base for overrides. */
 const PLAIN_KOPI: Drink = {
@@ -84,11 +84,32 @@ describe('§10.5 — the frozen export surface', () => {
       expect(specifiers, banned).not.toContain(banned);
     }
     // The DOM is reached through globals rather than imports, so it needs a
-    // separate check — over code with comments stripped, so that prose about
-    // the rule cannot break the rule.
-    const code = stripComments(SOURCE);
-    for (const global of ['document', 'window', 'navigator', 'localStorage']) {
-      expect(code, global).not.toMatch(new RegExp(`\\b${global}\\b`));
+    // separate check. `domGlobalsIn` reads code only, so that neither prose
+    // about the rule nor a message that mentions the DOM can break the rule:
+    // `document` inside a string is not a DOM access, and the file that would
+    // red on it is one Sprint 15 and Sprint 21 rewrite without owning this
+    // test. The control below reads through the same function, which is what
+    // makes it a control on this line rather than on the scanner.
+    expect(domGlobalsIn(SOURCE)).toEqual([]);
+  });
+
+  it('reads the DOM denylist from code, and only from code', () => {
+    // The control for the check above, and it binds to that check because it
+    // runs the same `domGlobalsIn` over the same subject — `view.ts`'s real
+    // `SOURCE`, with one line planted. A control over a synthetic string would
+    // only re-test the scanner, which is `source.test.ts`'s job, and would stay
+    // green if the line above regressed to reading string literals.
+    //
+    // Both halves. Stripping strings must have turned off exactly the false
+    // positive it was meant to (a global named inside a literal is prose about
+    // the DOM, not the DOM), and it must not have turned the check off (the
+    // same global written as code is still found). Narrow the lens back to
+    // comments alone and the first assertion reds, naming the global.
+    for (const global of DOM_GLOBALS) {
+      const prose = `${SOURCE}\nconst message = 'never reach for ${global}';\n`;
+      expect(domGlobalsIn(prose), global).toEqual([]);
+      const access = `${SOURCE}\nconst has = typeof ${global} !== 'x';\n`;
+      expect(domGlobalsIn(access), global).toEqual([global]);
     }
   });
 });

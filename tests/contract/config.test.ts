@@ -10,7 +10,7 @@
  * the foot of this file is what enforces that repo-wide, and it builds its own
  * banned list the same way so it does not trip over itself.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -288,7 +288,30 @@ describe('the three selectors are total, as moodFor is', () => {
  * The banned values are built arithmetically from §8.5's seconds, so this file
  * does not itself contain the millisecond literals it forbids.
  *
- * Three exclusions, each for a stated reason rather than for convenience:
+ * **Scope: the surfaces §10.4 governs, and only those.** The scan reads
+ * `src/game/**`, `src/dev/**`, `tests/game/**`, `tests/contract/**`,
+ * `tests/dev/**` and `tests/support/**` — the game core, the harnesses that
+ * hand-write game data, and the tests that assert on it. That is `SCOPE_ROOTS`
+ * below.
+ *
+ * It used to read every text file under `src/` and `tests/` and exclude three
+ * paths, and that was wider than the rule. §10.4 is about difficulty tuning
+ * restated outside `config.ts`; every value it bans is also an ordinary number
+ * somewhere else. Each of §8.5's millisecond forms is a plausible `z-index`, a
+ * plausible animation duration in milliseconds, or a plausible SVG `viewBox`
+ * extent, and the penalty fraction is a plausible `opacity` or `rgba()` alpha —
+ * this file's own docstring tripped the scan while it was being written, and
+ * S3.1-1 confirmed the rest by planting a banned `z-index` under
+ * `src/components/` and a banned `opacity` under `src/styles/`. Under the old
+ * scope a presentation sprint writing plain CSS reddened a test in
+ * `tests/contract/**`, a directory only Sprint 3 declares and which that sprint
+ * therefore has no legal way to edit. `src/app/**`, `src/components/**`,
+ * `src/graphics/**`, `src/styles/**`, `src/storage/**`, `tests/presentation/**`
+ * and `tests/styles/**` are consequently out of scope: a duration or a stacking
+ * order there is a design-token question, not a §8 one.
+ *
+ * The three exclusions survive inside that narrower scope, each for a stated
+ * reason rather than for convenience:
  *
  * - `src/game/config.ts` is the single source and is where they must appear.
  * - `tests/e2e/**` holds Playwright wall-clock budgets — how long a spec sits on
@@ -300,8 +323,14 @@ describe('the three selectors are total, as moodFor is', () => {
  *   *recorded output* — regenerated when config is tuned, never hand-restated —
  *   and §10.4 excludes test fixtures by name.
  *
- * Everything else is in scope, including hand-written fixture modules such as
- * `src/dev/fixtures.ts`, which S9-1 names this test as the guard for.
+ * Neither `tests/e2e/` nor `tests/fixtures/` is under a scope root any more, so
+ * both entries are now belt as well as braces. They stay because the reason for
+ * each is a §10.4 reason, and a future root would otherwise re-admit them
+ * silently.
+ *
+ * Hand-written fixture modules stay in scope: `src/dev/fixtures.ts` is what
+ * S9-1 names this test as the guard for, so `src/dev/**` is a root and the
+ * assertion below names that path directly rather than trusting the glob.
  */
 describe('§10.4 single-source rule', () => {
   const BANNED_MS = [18, 16, 14, 12, 6, 5, 4, 3, 2.5, 2].map(sec);
@@ -329,11 +358,31 @@ describe('§10.4 single-source rule', () => {
     '.svg',
   ];
 
+  /** The surfaces §10.4 governs. See this describe's header for why these six. */
+  const SCOPE_ROOTS = [
+    join('src', 'game'),
+    join('src', 'dev'),
+    join('tests', 'game'),
+    join('tests', 'contract'),
+    join('tests', 'dev'),
+    join('tests', 'support'),
+  ];
+
   const EXCLUDED = [
     join('src', 'game', 'config.ts'),
     join('tests', 'e2e') + sep,
     join('tests', 'fixtures') + sep,
   ];
+
+  /**
+   * Whether a repo-relative path is one §10.4 governs. Split out from the walk
+   * so the scope can be asserted for a file that does not exist yet — which is
+   * the only way to hold `src/dev/fixtures.ts` before S9-1 writes it.
+   */
+  function inScope(file: string): boolean {
+    if (!SCOPE_ROOTS.some((root) => file === root || file.startsWith(root + sep))) return false;
+    return !EXCLUDED.some((excluded) => file === excluded || file.startsWith(excluded));
+  }
 
   function textFilesUnder(dir: string): string[] {
     const out: string[] = [];
@@ -348,21 +397,76 @@ describe('§10.4 single-source rule', () => {
     return out;
   }
 
-  const files = [...textFilesUnder('src'), ...textFilesUnder('tests')].filter(
-    (file) => !EXCLUDED.some((excluded) => file === excluded || file.startsWith(excluded)),
-  );
+  let collected: string[] | undefined;
+
+  /**
+   * The in-scope files, walked once and memoised — but walked lazily, from
+   * inside a test rather than from this describe's body. Laziness is what keeps
+   * the scope-root assertion below reachable: `readdirSync` throws for a root
+   * that names no directory, and a throw during collection would empty this
+   * file of tests before any of them could say which root was wrong.
+   */
+  function scopedFiles(): string[] {
+    collected ??= SCOPE_ROOTS.flatMap((root) => textFilesUnder(root)).filter(inScope);
+    return collected;
+  }
+
+  // First, so that a mis-spelled root is reported by name here rather than as a
+  // raw `ENOENT` out of the walk the tests below it perform.
+  it('has a real directory behind every scope root, so a rename cannot empty it', () => {
+    // Reachable only because the walk is lazy: a root that stopped existing and
+    // a root spelled for a directory that never existed both throw out of
+    // `readdirSync`, and neither would reach this line if the walk ran during
+    // collection.
+    for (const root of SCOPE_ROOTS) {
+      const path = join(ROOT, root);
+      expect(existsSync(path) && statSync(path).isDirectory(), root).toBe(true);
+    }
+  });
 
   it('scans a non-trivial file set, so it cannot pass by finding nothing', () => {
-    expect(files.length).toBeGreaterThan(10);
-    expect(files).not.toContain(join('src', 'game', 'config.ts'));
-    expect(files).toContain(join('src', 'game', 'view.ts'));
-    expect(files).toContain(relative(ROOT, fileURLToPath(import.meta.url)));
+    expect(scopedFiles().length).toBeGreaterThan(10);
+    expect(scopedFiles()).not.toContain(join('src', 'game', 'config.ts'));
+    expect(scopedFiles()).toContain(join('src', 'game', 'view.ts'));
+    expect(scopedFiles()).toContain(relative(ROOT, fileURLToPath(import.meta.url)));
+  });
+
+  it('keeps src/dev/fixtures.ts in scope, which S9-1 names this test as the guard for', () => {
+    const fixtures = join('src', 'dev', 'fixtures.ts');
+    expect(inScope(fixtures)).toBe(true);
+    // S9-1 has not landed, so the file itself may not be there yet. Once it is,
+    // being in scope is no longer enough — it has to be collected.
+    if (existsSync(join(ROOT, fixtures))) {
+      expect(scopedFiles()).toContain(fixtures);
+    }
+  });
+
+  it('leaves the presentation surfaces out, which is the whole of the narrowing', () => {
+    // Every path here is one a later sprint owns and this test must never red.
+    // They are written as names rather than walked, because most do not exist
+    // yet and the point is the scope rule, not today's tree.
+    for (const outside of [
+      join('src', 'app', 'App.tsx'),
+      join('src', 'components', 'Cup.tsx'),
+      join('src', 'components', 'Cup.module.css'),
+      join('src', 'graphics', 'cup.svg'),
+      join('src', 'styles', 'tokens.css'),
+      join('src', 'storage', 'highscore.ts'),
+      join('src', 'main.tsx'),
+      join('tests', 'presentation', 'cup.test.ts'),
+      join('tests', 'styles', 'tokens.test.ts'),
+      join('tests', 'e2e', 'title.spec.ts'),
+      join('tests', 'fixtures', 'golden.json'),
+      join('src', 'game', 'config.ts'),
+    ]) {
+      expect(inScope(outside), outside).toBe(false);
+    }
   });
 
   it('finds no §8.5 millisecond value outside src/game/config.ts', () => {
     const offences: string[] = [];
 
-    for (const file of files) {
+    for (const file of scopedFiles()) {
       const source = readFileSync(join(ROOT, file), 'utf8');
       for (const value of BANNED_MS) {
         if (msPattern(value).test(source)) {
@@ -375,7 +479,7 @@ describe('§10.4 single-source rule', () => {
   });
 
   it('finds the wrong-serve penalty fraction nowhere outside src/game/config.ts', () => {
-    const offences = files.filter((file) =>
+    const offences = scopedFiles().filter((file) =>
       fractionPattern().test(readFileSync(join(ROOT, file), 'utf8')),
     );
     expect(offences).toEqual([]);
