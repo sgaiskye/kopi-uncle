@@ -3,7 +3,7 @@
 **Derived from:** `docs/prd.md` v1.2 (2026-08-27)
 **Team:** Solo human owner (U-Zyn Chua) plus unattended AI agent sprint loop
 **Merge mode:** `sprintkit-autopilot`, direct to `main` — every sprint merge changes what `npm run dev` shows
-**Total sprints:** 53
+**Total sprints:** 54
 **Total estimate:** 205 augmented-hours
 **Window:** Wed 2026-08-26 ~17:00 SGT → **code freeze Fri 2026-08-28 06:00 SGT** (~37h)
 **Talk:** NUS-ISS Learning Festival 2026, Fri 2026-08-28, 09:30 SGT
@@ -157,6 +157,7 @@ unattended run, and it buys nothing the local server does not already give you.
 | **3 — Playable** | 36–46 | Someone can run it locally and play the game |
 | **4 — Ship** | 47–52 | Daily, share, stats, screens, accessibility |
 | **5 — Publish** | 53 | The Pages deploy and the live URL. Cuttable — losing it costs a URL, not the demo |
+| **— Cleanup** | 54 | Out of tier. Closes two Sprint 5 review findings that no other sprint declares the files to fix. Cuttable — cutting it costs no shipped behaviour, only test durability |
 
 Realistically the cut line falls inside Tier 2. Tier 0 is the commitment;
 everything after it is upside.
@@ -377,7 +378,7 @@ committed golden fixtures.
 
 ---
 
-## Sprint 5 — Design tokens, both fonts and the contrast matrix [IN PROGRESS]
+## Sprint 5 — Design tokens, both fonts and the contrast matrix [DONE]
 
 **Goal:** Commit the palette, type scale and both fonts with WCAG contrast asserted, so that §9.7's AA floor is a gate failure rather than a review opinion.
 
@@ -393,14 +394,14 @@ committed golden fixtures.
 **Technical context:** The contrast test parses the hex values out of `tokens.css` rather than restating them, so editing a token to a failing value fails the test instead of silently diverging from it. §9.2's kaya-yellow-on-cream pair at 1.61:1 is the defect v1.1 corrected, so the test asserts the exclusions too.
 
 **Acceptance criteria:**
-- [ ] `src/styles/tokens.css` declares exactly the six §9.2 custom properties with exact values: `--kopitiam-green: #0E6B4F`, `--tile-teal: #2A9D8F`, `--kaya-yellow: #F4B93E`, `--chilli-red: #D62828`, `--condensed-cream: #FFF3D6`, `--teak: #4A2C18`.
-- [ ] Seven type-scale tokens exist — `--step-12`, `--step-14`, `--step-16`, `--step-20`, `--step-28`, `--step-40`, `--step-64` — with values 12, 14, 16, 20, 28, 40 and 64px, asserted by parsing the file.
-- [ ] Both faces are subset-imported from `@fontsource`: `@fontsource/anton/latin-400.css`, and Nunito Sans latin weights 400 and 700 only; the fallback stacks are exactly `'Anton', 'Arial Narrow', system-ui, sans-serif` and `'Nunito Sans', system-ui, -apple-system, sans-serif`, with `font-display: swap`.
-- [ ] No runtime font fetch (§3.3): `dist/` contains zero occurrences of `fonts.googleapis.com` or `fonts.gstatic.com`, and the font files are emitted into `dist/assets` — both grep assertions.
-- [ ] The contrast-matrix unit test parses the token values from `tokens.css` and asserts all six §9.2 approved pairs to within ±0.01: teak/cream 11.44, teak/kaya 7.12, `#FFFFFF`/green 6.49, cream/green 5.89, `#FFFFFF`/chilli 5.01, chilli/cream 4.54.
-- [ ] The same test asserts the two forbidden pairs fail the 4.5:1 floor — kaya-yellow on cream at 1.61 and tile-teal on cream at 3.01 — so the table's exclusions are load-bearing rather than decorative.
-- [ ] No §9.2 hex literal appears anywhere under `src/` outside `tokens.css`, closing S1-2's inlined wordmark colours in `src/app/TitleScreen.module.css` — grep assertion, zero hits. Placeholder screen modules carry no §9.2 literal of their own; if one has appeared, it is converted here too.
-- [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
+- [x] `src/styles/tokens.css` declares exactly the six §9.2 custom properties with exact values: `--kopitiam-green: #0E6B4F`, `--tile-teal: #2A9D8F`, `--kaya-yellow: #F4B93E`, `--chilli-red: #D62828`, `--condensed-cream: #FFF3D6`, `--teak: #4A2C18`.
+- [x] Seven type-scale tokens exist — `--step-12`, `--step-14`, `--step-16`, `--step-20`, `--step-28`, `--step-40`, `--step-64` — with values 12, 14, 16, 20, 28, 40 and 64px, asserted by parsing the file.
+- [x] Both faces are subset-imported from `@fontsource`: `@fontsource/anton/latin-400.css`, and Nunito Sans latin weights 400 and 700 only; the fallback stacks are exactly `'Anton', 'Arial Narrow', system-ui, sans-serif` and `'Nunito Sans', system-ui, -apple-system, sans-serif`, with `font-display: swap`.
+- [x] No runtime font fetch (§3.3): `dist/` contains zero occurrences of `fonts.googleapis.com` or `fonts.gstatic.com`, and the font files are emitted into `dist/assets` — both grep assertions.
+- [x] The contrast-matrix unit test parses the token values from `tokens.css` and asserts all six §9.2 approved pairs to within ±0.01: teak/cream 11.44, teak/kaya 7.12, `#FFFFFF`/green 6.49, cream/green 5.89, `#FFFFFF`/chilli 5.01, chilli/cream 4.54.
+- [x] The same test asserts the two forbidden pairs fail the 4.5:1 floor — kaya-yellow on cream at 1.61 and tile-teal on cream at 3.01 — so the table's exclusions are load-bearing rather than decorative.
+- [x] No §9.2 hex literal appears anywhere under `src/` outside `tokens.css`, closing S1-2's inlined wordmark colours in `src/app/TitleScreen.module.css` — grep assertion, zero hits. Placeholder screen modules carry no §9.2 literal of their own; if one has appeared, it is converted here too.
+- [x] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
 
 ---
 
@@ -608,8 +609,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** M3 (slack-fill)
 **Estimate:** 3.5h augmented
-**Dependencies:** Sprint 5
-**Touches:** `src/app/TitleScreen.tsx`, `src/app/TitleScreen.module.css`
+**Dependencies:** Sprint 5, Sprint 6
+**Touches:** `src/app/TitleScreen.tsx`, `src/app/TitleScreen.module.css`, `src/main.tsx`, `tests/e2e/title.spec.ts`
 
 ### S12-1 — Title screen and mode entry
 
@@ -617,8 +618,10 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Technical context:** The rAF loop that feeds `dtMs` must not be running at `phase === 'title'` — a title screen that ticks 60 times a second drains a phone while the player reads it, and §9.8's frame budget is for play. Gate the loop on `phase === 'playing'`.
 
+This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint 5 sync. **PF-4:** Sprint 5's `tokens.css` reaches the built app only because `src/app/TitleScreen.module.css` `@import`s it — the only path Sprint 5's `Touches:` allowed. That makes one screen's CSS module carry an app-wide responsibility, and this sprint is the first to rewrite that file, so it moves the import to `src/main.tsx` (now declared above). **PF-5:** this sprint's criteria already require `tests/e2e/title.spec.ts` and Playwright `boundingBox()` measurements, but the sprint declared neither `tests/e2e/**` nor a dependency on Sprint 6. Scheduled before Sprint 6 it would trip S1-1's refuse-to-pass guard — `scripts/e2e.mjs` exits 1 on any `*.spec.ts` under `tests/e2e/` — and red its own gate with no file it may edit. Both are fixed by the `Dependencies:` and `Touches:` lines above; Sprint 6 is inside Sprint 1's fan, so the edge costs no wall-clock.
+
 **Acceptance criteria:**
-- [ ] `src/components/TitleScreen.tsx` and its CSS module render at `phase === 'title'` with the logo in Anton at `--step-64` and four controls: Play, Daily Challenge, How to Play, Stats.
+- [ ] `src/app/TitleScreen.tsx` and its CSS module render at `phase === 'title'` with the logo in Anton at `--step-64` and four controls: Play, Daily Challenge, How to Play, Stats.
 - [ ] Play dispatches `START_RUN` with `mode: 'endless'` and a fresh seed supplied by the React layer; a test asserts two consecutive presses produce different seeds.
 - [ ] Daily Challenge dispatches `START_RUN` with `mode: 'daily'` and `seed === hashDateSeed(singaporeDateString(now))`; the `?date=` query param overrides the date at `START_RUN`, asserted by loading `?date=2026-08-28` and matching entry 1 of `tests/fixtures/daily-2026-08-28.json`.
 - [ ] How to Play and Stats each navigate to their own screen with a Back control that returns to `phase === 'title'`; the e2e asserts both round trips. Their content lands in S32-1 and S50-1.
@@ -627,6 +630,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 - [ ] All four controls measure at least 44×44 CSS pixels via `boundingBox()` at a 360px viewport, and `document.scrollWidth <= document.clientWidth` on the title at 360px.
 - [ ] Button labels render `#FFFFFF` on `--kopitiam-green` (6.49:1) and the logo renders `--teak`; a test asserts no text node on the title pairs `--kaya-yellow` foreground with `--condensed-cream` background (1.61:1, forbidden by §9.2).
 - [ ] Every control is reachable by Tab in visual order with a visible focus ring, and `Enter` activates the focused control.
+- [ ] **PF-4 —** `src/main.tsx` imports `./styles/tokens.css` and `src/app/TitleScreen.module.css` no longer `@import`s it, so the palette, the type scale and both `@font-face` sets no longer depend on one screen's module being mounted. Sprint 5's `tests/styles/fonts.test.ts` assertions that the built stylesheet carries three `@font-face` rules, three `font-display: swap` and a surviving `--teak` must all stay green across the move — they are what proves the tokens are still wired.
+- [ ] **PF-5, from the Sprint 5 review —** the 360px wordmark fit is asserted rather than reasoned about: `tests/e2e/title.spec.ts` loads the title at a 360px viewport and asserts `document.scrollWidth <= document.clientWidth` both after fonts settle *and* with the display face blocked, so the fallback stack (`'Arial Narrow', system-ui`) is measured too — that is the wider of the two and the case Sprint 5 could only reason about in a comment.
 - [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
 
 ---
@@ -1217,8 +1222,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
-**Dependencies:** Sprint 3, Sprint 5
-**Touches:** `src/components/slots/**`
+**Dependencies:** Sprint 3, Sprint 5, Sprint 6
+**Touches:** `src/components/slots/**`, `tests/e2e/slots.spec.ts`
 
 ### S23-1 — The six slot rows
 
@@ -1270,7 +1275,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
 **Dependencies:** Sprint 23
-**Touches:** `src/components/slots/**`
+**Touches:** `src/components/slots/**`, `tests/e2e/keyboard.spec.ts`
 
 ### S24-1 — Arrow and number-key navigation
 
@@ -1314,8 +1319,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** Track B (presentation)
 **Estimate:** 5h augmented
-**Dependencies:** Sprint 3, Sprint 5
-**Touches:** `src/graphics/**`
+**Dependencies:** Sprint 3, Sprint 5, Sprint 6
+**Touches:** `src/graphics/**`, `tests/e2e/preview.spec.ts`
 
 ### S25-1 — Plastic bag vessel
 
@@ -1415,7 +1420,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
 **Dependencies:** Sprint 26
-**Touches:** `src/graphics/**`
+**Touches:** `src/graphics/**`, `tests/e2e/preview.spec.ts`
 
 ### S27-1 — Ice cubes and condensation droplets
 
@@ -1456,7 +1461,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
 **Dependencies:** Sprint 27
-**Touches:** `src/graphics/**`, `src/styles/motion.css`
+**Touches:** `src/graphics/**`, `src/styles/motion.css`, `tests/e2e/vessel-transition.spec.ts`
 
 ### S28-1 — Vessel transition with a reduced-motion branch
 
@@ -1498,8 +1503,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
-**Dependencies:** Sprint 3, Sprint 5, Sprint 9
-**Touches:** `src/components/queue/**`
+**Dependencies:** Sprint 3, Sprint 5, Sprint 6, Sprint 9
+**Touches:** `src/components/queue/**`, `tests/e2e/queue.spec.ts`
 
 ### S29-1 — Queue card structure and order text
 
@@ -1548,7 +1553,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** Track B (presentation)
 **Estimate:** 4.5h augmented
 **Dependencies:** Sprint 29
-**Touches:** `src/components/queue/**`
+**Touches:** `src/components/queue/**`, `tests/e2e/queue.spec.ts`
 
 ### S30-1 — Patience ring and mood faces
 
@@ -1593,8 +1598,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** Track B (presentation)
 **Estimate:** 3h augmented
-**Dependencies:** Sprint 5, Sprint 9
-**Touches:** `src/dev/gallery/**`
+**Dependencies:** Sprint 5, Sprint 6, Sprint 9
+**Touches:** `src/dev/gallery/**`, `tests/e2e/gallery.spec.ts`
 
 ### S31-1 — Fixture gallery route
 
@@ -1668,7 +1673,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** Track B (presentation)
 **Estimate:** 4.5h augmented
 **Dependencies:** Sprint 24, Sprint 25, Sprint 30
-**Touches:** `src/app/GameScreen.tsx`, `src/app/GameScreen.module.css`
+**Touches:** `src/app/GameScreen.tsx`, `src/app/GameScreen.module.css`, `tests/e2e/game-screen.spec.ts`
 
 ### S33-1 — Portrait composition
 
@@ -1717,7 +1722,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
 **Dependencies:** Sprint 33
-**Touches:** `src/app/GameScreen.tsx`, `src/app/GameScreen.module.css`
+**Touches:** `src/app/GameScreen.tsx`, `src/app/GameScreen.module.css`, `tests/e2e/game-screen-desktop.spec.ts`
 
 ### S34-1 — Desktop three-column composition
 
@@ -1758,7 +1763,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** Track B (presentation)
 **Estimate:** 3.5h augmented
 **Dependencies:** Sprint 28, Sprint 34
-**Touches:** `tests/presentation/**`
+**Touches:** `tests/presentation/**`, `tests/e2e/a11y.spec.ts`
 
 ### S35-1 — Catalogue sweep, lockout affordance and contrast enforcement
 
@@ -1783,6 +1788,13 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
       `tokens.css` values, and asserts each pair is one of the six in §9.2's table and
       computes `>= 4.5:1`. A deliberately wrong pairing added in the test's own scratch
       fixture must make it fail, proving the check bites.
+- [ ] **The §9.2 matrix governs *effective* rendered colour, not the token pair** — the ruling
+      taken at the Sprint 5 sync for the opacity hole its review found (standing instruction 1:
+      green, reversible, recorded). Any `opacity` on a text node or on an ancestor is composited
+      into the foreground against the resolved background before the ratio is computed, and the
+      composited pair must still clear 4.5:1. A scratch fixture with `opacity: 0.4` over an
+      otherwise-approved teak-on-cream pair must fail the check; `opacity: 1` must pass. This
+      supersedes nothing in §9.2's table — it fixes how the table is applied.
 - [ ] 44×44 sweep (§9.7): `tests/e2e/a11y.spec.ts` loads every catalogue fixture at 360×640
       and asserts every interactive element has `boundingBox().width >= 44` and `height >= 44`.
 - [ ] Reduced-motion sweep: every catalogue fixture under
@@ -2001,7 +2013,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** M2
 **Estimate:** 2.5h augmented
 **Dependencies:** Sprint 37, Sprint 32
-**Touches:** `src/app/Pause.tsx`, `src/app/Pause.module.css`
+**Touches:** `src/app/Pause.tsx`, `src/app/Pause.module.css`, `tests/e2e/pause.spec.ts`
 
 ### S43-1 — Mid-game help behind R19 PAUSE
 
@@ -2125,8 +2137,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** M3
 **Estimate:** 5h augmented
-**Dependencies:** Sprint 20, Sprint 22
-**Touches:** `tests/fixtures/daily-run.json`, `tests/game/daily-run.test.ts`
+**Dependencies:** Sprint 6, Sprint 20, Sprint 22
+**Touches:** `tests/fixtures/daily-run.json`, `tests/game/daily-run.test.ts`, `tests/e2e/daily.spec.ts`
 
 ### S47-1 — The 34-customer Daily and its golden fixture
 
@@ -2187,8 +2199,8 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** M3
 **Estimate:** 4.5h augmented
-**Dependencies:** Sprint 20, Sprint 48
-**Touches:** `src/components/share/**`
+**Dependencies:** Sprint 6, Sprint 20, Sprint 48
+**Touches:** `src/components/share/**`, `tests/e2e/share.spec.ts`
 
 ### S49-1 — Emoji grid and clipboard copy
 
@@ -2245,7 +2257,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 **Track:** M3
 **Estimate:** 6h augmented
 **Dependencies:** Sprint 12, Sprint 34, Sprint 38, Sprint 39, Sprint 41, Sprint 42, Sprint 43, Sprint 44, Sprint 49, Sprint 50
-**Touches:** `src/components/**`, `src/app/**`, `tests/presentation/**`
+**Touches:** `src/components/**`, `src/app/**`, `tests/presentation/**`, `tests/e2e/keyboard.spec.ts`
 
 ### S51-1 — prefers-reduced-motion across every animation
 
@@ -2272,6 +2284,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 - [ ] Every focusable element shows a visible focus ring: an audit asserts computed `outline-width >= 2px` or a non-`none` `box-shadow` under `:focus-visible`, across title, game, help, stats and game-over.
 - [ ] A contrast audit walks every rendered text node on all five screens, resolves computed `color` and effective background to hex, and asserts each pair is a member of §9.2's six-pair matrix with a computed ratio ≥ 4.5:1.
 - [ ] The audit explicitly asserts zero occurrences of `--kaya-yellow` text on `--condensed-cream` (1.61:1) anywhere in the app.
+- [ ] The audit composites `opacity` into the foreground before computing the ratio, per the S35-1 ruling — a text node at `opacity: 0.4` over an approved pair fails, at `opacity: 1` passes. Sprint 5's token-level matrix cannot see opacity, so this audit is the only place the rule is enforced across all five screens.
 - [ ] Active order text measures ≥ 28px computed `font-size` on every viewport, and the longest tier-3 order `Teh O kosong gao peng da bao` renders in the active-card style at 360px with `document.scrollWidth <= document.clientWidth`.
 - [ ] Every interactive element across all five screens measures at least 44×44 CSS pixels via `boundingBox()` at a 360px viewport.
 - [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
@@ -2352,6 +2365,44 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 ---
 
+## Sprint 54 — Non-blocking cleanup: the CSS test surface [NOT STARTED]
+
+**Goal:** Give the two orphaned improvements from the Sprint 5 review an owner — no sprint after 5 declares `tests/styles/**`, so without this sprint neither has a legal home.
+
+**Track:** Cleanup (out of tier — cuttable, and cutting it costs no shipped behaviour)
+**Estimate:** 1.5h augmented
+**Dependencies:** Sprint 5, Sprint 10
+**Touches:** `tests/styles/**`, `tests/support/css.ts`
+
+**Why it depends on Sprint 10:** Sprint 10 declares the glob `tests/support/**`, which overlaps `tests/support/css.ts`. The edge serialises the two rather than letting the scheduler run them concurrently into a collision; Sprint 10 is early in Track A, so the edge costs no wall-clock.
+
+### S54-1 — Close the two false negatives in the §9.2 colour sweep
+
+*As the implementing agent, I want the `src/` colour sweep to catch every legal CSS spelling of a §9.2 palette colour, so that the claim the sweep makes is the claim it can actually keep.*
+
+**Context:** The Sprint 5 re-review found two false negatives in `tests/styles/tokens.test.ts`'s `hsl()` handling — both verified by mutation, neither blocking, and neither fixable inside Sprint 5's PR. (1) **`grad` hues are converted as radians.** `/rad$/i.test('47.156grad')` is `true`, so the `rad` branch swallows `grad` and the `grad` branch below it is dead code; `hsl(47.156grad 100% 91.96%)` — a legal spelling of `--condensed-cream` — is not caught, while the `deg` and `turn` spellings both are. (2) **`hslChannels` does not normalise hue into `[0, 360)`.** JS `%` keeps the sign, so a negative hue yields the wrong channels and `hsl(-317.56 100% 91.96%)`, also cream, slips past. Hues above 360 are already absorbed by the modulo and are fine.
+
+**Acceptance criteria:**
+- [ ] The hue-unit branch tests the units in an order that cannot alias: `grad` is matched before `rad` (or matched on a word boundary), and a unit-conversion test asserts `47.156grad`, `0.11789turn`, `0.74084rad` and `42.44deg` all resolve to the same hue within a tolerance that makes them the same 8-bit colour.
+- [ ] `hslChannels` normalises hue with `((h % 360) + 360) % 360` before conversion, asserted directly on a negative hue.
+- [ ] Both spellings are added to the existing bidirectional proof test: `hsl(47.156grad 100% 91.96%)` and `hsl(-317.56 100% 91.96%)` are in the must-red set, and the fix is verified the way Sprint 5 verified the rest — by appending them to a scratch mutant block and watching the sweep name them with the right token attribution.
+- [ ] The must-not-red set is unchanged and still passes, so no concurrent sprint inherits a false positive — `rgba(0, 0, 0, 0.2)` in particular stays legal.
+
+### S54-2 — Extract the shared CSS-parsing helpers
+
+*As the implementing agent, I want one CSS-parsing helper module rather than two divergent copies, so that the styles suite cannot disagree with itself while both halves stay green.*
+
+**Context:** The Sprint 5 review noted that `tests/styles/tokens.test.ts` and `tests/styles/fonts.test.ts` each carry their own CSS-parsing helpers. The one live divergence — the two value readers trimming differently — was fixed inside the Sprint 5 PR, but the duplication itself remained, because `tests/support/**` is Sprint 10's scope and was outside Sprint 5's `Touches:`. `tests/support/` exists and, apart from Sprint 10's `harness.ts`, is empty.
+
+**Acceptance criteria:**
+- [ ] `tests/support/css.ts` exports the shared readers used by both style test files — at minimum the stylesheet loader, the custom-property reader (normalising internal whitespace), and the colour-notation reducer (`COLOUR_NOTATION` / `channelsOf` / `paletteTokenFor`).
+- [ ] Both `tests/styles/tokens.test.ts` and `tests/styles/fonts.test.ts` import from it and define no local copy: a test asserts neither file declares its own `channelsOf` or custom-property regex.
+- [ ] `tests/support/css.ts` imports nothing from `src/` beyond reading `src/styles/tokens.css` as a file, so it stays a test-only module and cannot pull application code into the styles suite.
+- [ ] Every assertion Sprint 5 shipped still passes unchanged after the extraction — the mutation checks the review verified (a changed palette hex reds the palette row and its contrast row; a deleted `@import`, or after S12-1's PF-4 move a deleted `src/main.tsx` import, reds the `@font-face` count) must still red.
+- [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
+
+---
+
 ## Non-blocking Review Backlog
 
 Plan findings raised during review that do not block the PR they were found in,
@@ -2364,6 +2415,44 @@ inside a pull request. Append here; do not fix in place mid-sprint.
 | Sprint 1 (PR #1, cycle 1) | **PF-1** — S8-1 requires "a committed placeholder spec under `tests/e2e/`" to prove Vitest's exclusion, but S1-1 mandates that `scripts/e2e.mjs` exit 1 on any `*.spec.ts` under `tests/e2e/` at any depth. Sprint 8 depended only on Sprint 3 and owns neither `scripts/e2e.mjs` (Sprint 6) nor `tests/e2e/**`, so scheduled before Sprint 6 it reds its own gate with no file it may edit. | Sprint 8 | **CLOSED** — drained at this sync. Sprint 8 now declares `**Dependencies:** Sprint 3, Sprint 6` and asserts the exclusion against Sprint 6's committed `tests/e2e/smoke.spec.ts` rather than committing one of its own; `Touches:` is unchanged. Sprint 6 is inside Sprint 1's fan, so the edge costs no wall-clock. |
 | Sprint 1 (PR #1, cycle 1) | **PF-2** — S46-1's grep for zero occurrences of `src/dev` across `src/` and `tests/` matches `tests/scaffold/tree.test.ts`, which names `src/dev` in `DEV_DIRS` and in its `skipIf` guard. Sprint 46 does not own `tests/scaffold/**`. | Sprint 46 | **CLOSED** — drained at this sync. S46-1's exclusion list now reads `tests/lint/fixtures/` **and `tests/scaffold/`**, with the reason recorded inline: the `skipIf` guard is the correct self-retiring behaviour, not a leftover. `Touches:` unchanged. |
 | Sprint 1 (PR #1, cycle 2) | **PF-3** — `tests/scaffold/build.test.ts` imports `basePathFor` from `vite.config.ts` and spawns two builds. If S8-1 splits Vitest into node and jsdom projects that file belongs in the node project, but Sprint 8 owns `vitest.config.ts` and not `tests/scaffold/**`. | Sprint 8 | **CLOSED** — drained at this sync. S8-1 gains a criterion placing `build.test.ts` in the node project and `title-screen.test.tsx` in the jsdom project, asserting no committed test file falls outside a project. The project globs live in `vitest.config.ts`, which Sprint 8 already owns, so `Touches:` is unchanged. |
+| Sprint 5 (PR #2, cycles 1–2) | **PF-4** — Sprint 5's `tokens.css` reaches the built app only because `src/app/TitleScreen.module.css` `@import`s it. That is the only path Sprint 5's `Touches:` allowed, and the reviewer confirmed by mutation that deleting the `@import` reds `fonts.test.ts`, so it cannot be dropped silently — but it leaves one screen's CSS module carrying an app-wide responsibility it has no reason to know about. The natural home is `src/main.tsx`, which no sprint declared. | Sprint 12 | **CLOSED** — drained at this sync. Sprint 12 is the first sprint to rewrite `TitleScreen.module.css`; its `Touches:` now adds `src/main.tsx` and S12-1 gains a criterion moving the import there, with Sprint 5's `@font-face` / `font-display` / `--teak` assertions required to stay green across the move. |
+| Sprint 5 (PR #2, cycle 1) | **PF-5** — the same defect as PF-1, and systemic rather than local. **Sixteen** sprints name a `tests/e2e/*.spec.ts` file they must create or extend, but declare neither the path in `Touches:` nor a dependency on Sprint 6 — 12, 23, 24, 25, 27, 28, 29, 30, 31, 33, 34, 35, 43, 47, 49, 51. Scheduled before Sprint 6, each trips S1-1's refuse-to-pass guard (`scripts/e2e.mjs` exits 1 on any `*.spec.ts` under `tests/e2e/`) and reds its own gate with no file it may edit. Sprints 12, 23, 25, 29, 31, 47 and 49 are reachable without Sprint 6 in their closure, so this is live, not theoretical — Sprint 12 becomes reachable on this very merge. Surfaced by the Sprint 5 review's nice-to-have 6 (the 360px wordmark fit needs `tests/e2e/**`, which S12-1 did not own). | Sprints 12, 23, 24, 25, 27, 28, 29, 30, 31, 33, 34, 35, 43, 47, 49, 51 | **CLOSED** — drained at this sync. Each of the sixteen now declares the exact spec file it writes in `Touches:` — per-file, not the `tests/e2e/**` glob, so the scheduler still fans them out. The `Sprint 6` edge was added only at the seven chain roots (12, 23, 25, 29, 31, 47, 49); the other nine already inherit it transitively. Duplicate spec names were checked for collisions and every pair is already ordered by an existing edge (29→30, 25→26→27, 23→24→…→51). S12-1 additionally gains the 360px fit criterion, asserted with the display face blocked so the wider fallback stack is the case measured. |
+| Sprint 5 (PR #2, cycle 1, nice-to-have 7) | **PF-6** — `opacity` is a hole in the "contrast is a gate failure" story. Sprint 5's matrix parses tokens and cannot see an opacity that dilutes them; `.scaffoldNote` at `0.75` computes to an effective 5.48:1 and is fine, but `0.5` would land near 3:1 with nothing to catch it. Needs a §9.2 ruling, and `sprintkit-sync` may not edit the PRD. | Sprints 35, 51 | **CLOSED** — **ruled** at this sync under standing instruction 1 (never ask; take the green, reversible option and record it), not escalated. **The ruling: §9.2's matrix governs *effective* rendered colour — any `opacity` on a text node or an ancestor composites into the foreground before the ratio is computed.** This adds no colour and removes none; it fixes how the existing table is applied, so it is reversible by deleting two criteria. Enforced where computed styles are actually available: a new S35-1 criterion (the first rendered-contrast enforcement, with a scratch fixture at `opacity: 0.4` that must fail) and a matching S51-2 criterion covering all five screens. A bare `opacity:` source sweep was rejected for the reason the reviewer gave — it cannot tell text from a decorative tile or a keyframe, and would red concurrent sprints that cannot see the rule. |
+| Sprint 5 (PR #2, cycle 2) | **PF-7** — two verified false negatives in `tests/styles/tokens.test.ts`'s `hsl()` handling: `grad` hues are swallowed by the `rad` branch (`/rad$/i.test('47.156grad')` is `true`, making the `grad` branch dead code), and `hslChannels` does not normalise hue into `[0, 360)`, so a negative hue produces the wrong channels. `hsl(47.156grad 100% 91.96%)` and `hsl(-317.56 100% 91.96%)` — both legal spellings of `--condensed-cream` — slip past the sweep. No sprint after 5 declares `tests/styles/**`. | Sprint 54 (new) | **CLOSED** — drained at this sync into **S54-1**. Could not be folded into an existing sprint: `tests/styles/**` had no owner after Sprint 5, which is what makes a cleanup sprint the fix rather than a deferral. |
+| Sprint 5 (PR #2, cycle 1, nice-to-have 10) | **PF-8** — `tokens.test.ts` and `fonts.test.ts` duplicate their CSS-parsing helpers. The one live divergence (the two value readers trimming differently) was fixed inside PR #2; the duplication itself was not, because `tests/support/**` is Sprint 10's scope and was outside Sprint 5's `Touches:`. | Sprint 54 (new) | **CLOSED** — drained at this sync into **S54-2**, which declares `tests/support/css.ts` per-file and depends on Sprint 10 so the glob overlap serialises rather than collides. |
+
+**Drainage log — Sprint 5 sync (2026-08-29).** Sprint 5 merged as PR #2 with
+**zero blockers across both review cycles and all eight S5-1 acceptance criteria
+met** — met, unusually, by assertions the reviewer watched fail under mutation.
+No blocking work was carried over, so **no followup sub-sprint 5.1 was created**.
+
+Five plan findings were raised and all five are resolved in this file rather
+than deferred, per standing instruction 6. Three (PF-4, PF-5, PF-6) were drained
+into sprints that already own the file the fix lives in, or that gained one line
+of `Touches:` to do so. Two (PF-7, PF-8) had **no owner at all** — no sprint
+after 5 declares `tests/styles/**` — which is why **Sprint 54** exists: it is not
+a deferral bucket, it is the only legal home for two findings that would
+otherwise have been silently dropped. It is marked out-of-tier and cuttable;
+cutting it costs no shipped behaviour.
+
+PF-5 is the one worth reading twice. It is PF-1 again, sixteen times over, and
+it was live rather than theoretical: Sprint 12 becomes reachable on this merge
+and would have red its own gate on its first Playwright criterion. The fix
+declares each spec file per-file rather than widening anyone to the
+`tests/e2e/**` glob, so the fan-out shape is unchanged, and adds the `Sprint 6`
+edge at seven chain roots only. Sprint 6 is inside Sprint 1's fan and already
+approved, so the edges cost no wall-clock.
+
+PF-6 was the only finding that wanted a human: it asks for a §9.2 ruling, and
+this skill may not edit the PRD. Standing instruction 1 forbids asking, so it is
+ruled here instead — opacity composites into the foreground before the contrast
+ratio is computed — recorded above, enforced by two criteria, and reversible by
+deleting them.
+
+One incidental inconsistency was corrected while editing Sprint 12: S12-1's
+first criterion named `src/components/TitleScreen.tsx` while its `Touches:` line
+and every other reference say `src/app/TitleScreen.tsx`. The `Touches:` line
+wins; the criterion now matches it.
 
 **Drainage log — Sprint 1 sync (2026-08-27).** All three plan findings from PR
 #1 were resolved in this file rather than deferred, per standing instruction 6
