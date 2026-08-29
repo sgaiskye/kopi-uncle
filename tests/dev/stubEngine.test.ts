@@ -18,11 +18,14 @@ import { CONFIG } from '../../src/game/config';
 import { isValidDrink, moodFor } from '../../src/game/view';
 import type { Action, GameState } from '../../src/game/types';
 import {
+  AFTER_WALKOUT,
+  GAME_OVER,
   MID_LOCKOUT,
   MOOD_CALM,
   PLAIN_KOPI,
   REPLAY_STEP_MS,
   SHIFT_BREAK,
+  SHIFT_BREAK_CLEARED,
   THREE_CUSTOMERS,
   TIMELINE,
 } from '../../src/dev/fixtures';
@@ -172,6 +175,46 @@ describe('the parts of §10.3’s contract the stub does honour', () => {
     const focused = stub.applyAction(walkout, { type: 'PAUSE' });
     expect(focused.frameEvents).toEqual([]);
   });
+
+  it('hands an entry’s events to the frame that crosses into it and to no other (R21)', () => {
+    // The frame *before* the walkout: still inside the angry entry, empty outbox.
+    const angry = stub.tick(stub.createInitialState('daily', SEED), REPLAY_STEP_MS * 3);
+    expect(shapeOf(angry)).toBe('playing/angry');
+    expect(angry.frameEvents).toEqual([]);
+
+    // The crossing frame delivers the walkout entry's one-shot events, once.
+    const walkout = stub.tick(angry, REPLAY_STEP_MS);
+    expect(walkout.frameEvents).toEqual(AFTER_WALKOUT.frameEvents);
+    expect(walkout.frameEvents).toContainEqual({ type: 'walkout', customerId: 1 });
+
+    // An entry dwells for REPLAY_STEP_MS, so at a 16ms cadence a replay that
+    // spread the entry's state without clearing its outbox would re-deliver the
+    // walkout ~375 times. Every dwelling frame must come back empty.
+    let dwelling = walkout;
+    for (let index = 0; index < 100; index += 1) {
+      dwelling = stub.tick(dwelling, CONFIG.TICK_MS);
+      expect(dwelling.frameEvents, `dwelling frame ${String(index)}`).toEqual([]);
+      expect(dwelling.hearts).toBe(walkout.hearts);
+    }
+  });
+
+  it('delivers gameOver once and then stops producing frames at all (R21, §10.3)', () => {
+    let state = stub.createInitialState('daily', SEED);
+    for (let index = 0; index < TIMELINE.length - 1; index += 1) {
+      state = stub.tick(state, REPLAY_STEP_MS);
+    }
+    expect(state.phase).toBe('gameover');
+    expect(state.frameEvents).toContainEqual({ type: 'gameOver' });
+
+    // §10.3's identity clause: past the last entry there is nothing left to walk
+    // to, so the same reference comes back — no new object, no re-render, and no
+    // second delivery of `gameOver` to anything keyed on the state.
+    for (const dtMs of [CONFIG.TICK_MS, CONFIG.MAX_FRAME_MS, REPLAY_STEP_MS * 10]) {
+      expect(stub.tick(state, dtMs), `dtMs ${String(dtMs)}`).toBe(state);
+    }
+    // And handing the terminal fixture straight back is a total no-op too.
+    expect(stub.tick(GAME_OVER, CONFIG.TICK_MS)).toBe(GAME_OVER);
+  });
 });
 
 describe('the player actions the stub has to answer for Track B', () => {
@@ -217,6 +260,24 @@ describe('the player actions the stub has to answer for Track B', () => {
     expect(stub.applyAction(SHIFT_BREAK, { type: 'DISMISS_BREAK' }).phase).toBe('gameover');
   });
 
+  it('DISMISS_BREAK steps the Endless break card forwards too, not back to the top', () => {
+    // `SHIFT_BREAK_CLEARED` is the only Endless break card in the catalogue, so
+    // it carries the break stop's cursor: a Continue button wired to it has to
+    // move on rather than rewind the run to `calm`.
+    expect(SHIFT_BREAK_CLEARED.mode).toBe('endless');
+    const dismissed = stub.applyAction(SHIFT_BREAK_CLEARED, { type: 'DISMISS_BREAK' });
+    expect(dismissed.phase).toBe('gameover');
+    // R2/§8.2 — the run's own mode survives the step; the script does not own it.
+    expect(dismissed.mode).toBe('endless');
+  });
+
+  it('DISMISS_BREAK at the very end of the script clamps rather than running off it', () => {
+    // `step` is total over `GameState` and these exports are public, so nothing
+    // stops a gallery handing in a break-phase state parked past the last entry.
+    const parked: GameState = { ...SHIFT_BREAK, tickRemainderMs: GAME_OVER.tickRemainderMs };
+    expect(stub.applyAction(parked, { type: 'DISMISS_BREAK' })).toBe(parked);
+  });
+
   it('R19 — PAUSE is legal only from playing, RESUME only from paused', () => {
     expect(stub.applyAction(SHIFT_BREAK, { type: 'PAUSE' })).toBe(SHIFT_BREAK);
     expect(stub.applyAction(MOOD_CALM, { type: 'RESUME' })).toBe(MOOD_CALM);
@@ -226,6 +287,19 @@ describe('the player actions the stub has to answer for Track B', () => {
     // R19 composes with R5: the lockout is preserved across a pause, not consumed.
     const pausedUnderLockout = stub.applyAction(MID_LOCKOUT, { type: 'PAUSE' });
     expect(pausedUnderLockout.lockoutMs).toBe(MID_LOCKOUT.lockoutMs);
+  });
+
+  it('rewinds a render-only fixture to the top of the script, as documented', () => {
+    // Pinning the documented restriction rather than a bug: the replay has one
+    // cursor, and a fixture that never sat on the replay has no position in it,
+    // so it starts from `empty`. `fixtures.ts` says so above `REPLAY_AT`; this is
+    // the test that fails if that sentence ever stops being true.
+    expect(MID_LOCKOUT.tickRemainderMs).toBe(0);
+    const driven = stub.tick(MID_LOCKOUT, CONFIG.TICK_MS);
+    expect(driven.queue).toHaveLength(0);
+    expect(driven.lockoutMs).toBe(0);
+    // Even rewound, R21 holds: no crossing, so no events.
+    expect(driven.frameEvents).toEqual([]);
   });
 
   it('SERVE steps the replay rather than grading the order', () => {

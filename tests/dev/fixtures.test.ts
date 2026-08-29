@@ -330,6 +330,27 @@ describe('the scripted replay’s shape', () => {
     }
   });
 
+  it('parks the one Endless break card on the break stop, so Continue moves forward', () => {
+    const breakStop = TIMELINE.find((entry) => entry.name === 'break');
+    expect(breakStop).toBeDefined();
+    expect(SHIFT_BREAK_CLEARED.tickRemainderMs).toBe(breakStop?.atMs);
+  });
+
+  it('leaves every render-only fixture at the top of the script, and says so', () => {
+    // The drivable set is exactly the timeline plus the Endless break card; every
+    // other fixture is a snapshot to render, not a state to drive. `fixtures.ts`
+    // documents that above `REPLAY_AT`, and `stubEngine.test.ts` pins what
+    // driving one actually does.
+    const drivable = new Set<GameState>([
+      ...TIMELINE.map((entry) => entry.state),
+      SHIFT_BREAK_CLEARED,
+    ]);
+    for (const [name, state] of NAMED) {
+      if (drivable.has(state)) continue;
+      expect(state.tickRemainderMs, name).toBe(0);
+    }
+  });
+
   it('never walks R22’s id counter backwards, and never regains a heart', () => {
     TIMELINE.forEach((entry, index) => {
       if (index === 0) return;

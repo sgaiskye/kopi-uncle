@@ -36,9 +36,15 @@ import type { Customer, Drink, GameState, ServeResult } from '../game/types';
 
 /**
  * Freezes the object graph rather than only its root, so a frozen fixture's
- * `queue`, its `Customer`s and its `shiftResults` rows are frozen too. Modelled
- * on `config.ts`'s, and safe for the same reason: it is applied only to literals
- * built in this module, which cannot reference themselves.
+ * `queue`, its `Customer`s and its `shiftResults` rows are frozen too.
+ *
+ * **This is a deliberate copy of `deepFreeze` in `src/game/config.ts`** (see the
+ * original there for the no-cycle-guard reasoning, which holds here for the same
+ * reason: it is applied only to literals built in this module, which cannot
+ * reference themselves). It is copied rather than exported and shared because
+ * `config.ts` is part of the frozen §10.4 contract — Sprint 3 froze its public
+ * surface — and because `src/dev/` is deleted whole by an M2 story, so widening
+ * that surface for a helper with a scheduled death would be the worse trade.
  */
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object') {
@@ -76,6 +82,21 @@ export const REPLAY_STEP_MS = gapMsFor(BREAKFAST, 1);
  * card rather than back at the top of the script: a fixture handed straight to
  * the stub already knows where it is. `tests/dev/fixtures.test.ts` asserts the
  * two agree entry by entry.
+ *
+ * ## Render-only fixtures, and why the distinction matters
+ *
+ * Only a fixture with a cursor is **drivable** — safe to hand to `tick` or
+ * `applyAction`. Those are the seven `TIMELINE` states plus `SHIFT_BREAK_CLEARED`,
+ * which is parked at the `break` stop so that Track B can wire a Continue button
+ * to the one Endless break card and have it move *forward*.
+ *
+ * Every other fixture is **render-only**: a snapshot for a component, a story or
+ * a gallery tile to draw, and nothing more. They inherit `BASE`'s
+ * `tickRemainderMs: 0`, which is the `empty` stop, so handing one to the stub
+ * rewinds it to the top of the script — `tick(MID_LOCKOUT, 16)` returns an empty
+ * queue with no lockout. That is not a bug in the stub: the replay is a
+ * slideshow with one cursor, and a state that never sat on the slideshow has no
+ * position in it. Render them; do not drive them.
  */
 const REPLAY_AT = {
   empty: 0,
@@ -399,6 +420,11 @@ export const SHIFT_BREAK: GameState = fixture({
  * R15's *positive* case, and the one Endless fixture: a shift cleared with zero
  * walkouts, so the +`SHIFT_CLEAR_BONUS` lands and the `shiftCleared` event is in
  * `frameEvents` for §9.5's break card to celebrate.
+ *
+ * It is not on the `TIMELINE`, but it carries the `break` stop's cursor anyway,
+ * because it is the only Endless break card Track B has: a Continue button wired
+ * to it must step the replay *forward* to the game-over card, exactly as it does
+ * from `SHIFT_BREAK`, rather than rewinding to the top of the script.
  */
 const CLEARED_GRID: readonly ServeResult[] = repeat('clean', CONFIG.SHIFTS[BREAKFAST].customers);
 
@@ -422,6 +448,7 @@ export const SHIFT_BREAK_CLEARED: GameState = fixture({
   nextCustomerId: CONFIG.SHIFTS[BREAKFAST].customers + 1,
   nextArrivalMs: 0,
   shiftResults: [[...CLEARED_GRID]],
+  tickRemainderMs: REPLAY_AT.break,
   frameEvents: [{ type: 'shiftCleared', shiftIndex: BREAKFAST, bonus: CONFIG.SHIFT_CLEAR_BONUS }],
 });
 

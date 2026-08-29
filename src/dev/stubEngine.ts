@@ -28,10 +28,13 @@
  *   reference whenever `phase !== 'playing'`, and R9 makes `DISMISS_BREAK` the
  *   only way past a break card. S9-1 requires repeated advances alone to reach
  *   `gameover`, so the replay steps through `break` on time as well as on
- *   `DISMISS_BREAK`. The rest of the clause is honoured: `dtMs === 0` returns
- *   the identical reference, `phase === 'paused'` is a total no-op per R19, and
- *   `builder` keeps its identity across a whole run of ticks so §9.4's SVG
- *   preview is not rebuilt every frame.
+ *   `DISMISS_BREAK`. That is the *whole* of the divergence, and it is bounded by
+ *   the end of the script: past the last entry there is nothing left to walk to,
+ *   so `tick` hands back the identical reference again and the game-over card
+ *   does not re-render at 60fps forever. The rest of the clause is honoured too:
+ *   `dtMs === 0` returns the identical reference, `phase === 'paused'` is a
+ *   total no-op per R19, and `builder` keeps its identity across a whole run of
+ *   ticks so §9.4's SVG preview is not rebuilt every frame.
  * - **Nothing is graded.** M1a owns §7.6's order comparison, so `SERVE` does not
  *   decide right from wrong — it simply steps the replay. The wrong-serve states
  *   Track B must build against are named fixtures (`POST_WRONG_SERVE`,
@@ -43,6 +46,30 @@
  * no-op serve, R5's lockout swallowing player input, R9's explicit break
  * dismissal, R19's pause rules, R21's frame-local `frameEvents`, and R2/§8.2's
  * builder persisting across everything but `START_RUN`.
+ *
+ * ## R21, and why an entry's events fire exactly once
+ *
+ * A timeline entry *dwells* for `REPLAY_STEP_MS`, so at a 16ms cadence a naive
+ * replay would re-deliver a one-shot `walkout` or `heartLost` ~375 times in a
+ * row and `gameOver` forever. R21 makes `frameEvents` a frame-local outbox,
+ * overwritten on every call, so `at` hands an entry's events to the frame that
+ * **crosses into** it and `NO_EVENTS` to every frame that merely dwells there.
+ * A Track B effect keyed on `frameEvents` therefore fires once, exactly as it
+ * will against M1a's engine.
+ *
+ * The terminal state is the one place events outlive their frame, and that is
+ * the frozen contract rather than a stub artefact: `tick` returns the identical
+ * reference once the replay clamps, so the state carrying `gameOver` simply
+ * stays put — which is precisely what §10.3's identity clause makes the real
+ * engine do after it writes `gameOver` and stops. The reference never changes,
+ * so nothing downstream re-fires.
+ *
+ * ## Which fixtures may be handed to it
+ *
+ * The replay cursor lives in `tickRemainderMs`, so only the fixtures that carry
+ * one — `fixtures.ts`'s `TIMELINE` states, plus `SHIFT_BREAK_CLEARED` — are
+ * *drivable*. The rest of the catalogue is for rendering; see the note above
+ * `REPLAY_AT` in `fixtures.ts`.
  */
 import type { Action, GameEvent, GameState, Mode } from '../game/types';
 import { setSlot } from '../game/types';
@@ -72,9 +99,18 @@ function entryAt(elapsedMs: number): TimelineEntry {
  * the run rather than to the script: the `mode` and `seed` `START_RUN` chose,
  * §8.2's builder, and the player's focus for as long as that customer is still
  * in the queue (R3 re-resolves it to the front otherwise).
+ *
+ * R21 decides `frameEvents` here and nowhere else. An entry's events describe
+ * the *moment* the run entered it — a customer walking out, a shift clearing,
+ * the run ending — so they belong to the frame that crosses the boundary and to
+ * no other. Frames that land inside the entry the cursor was already in get the
+ * empty outbox, which is what keeps a one-shot event one-shot across an entry's
+ * `REPLAY_STEP_MS` dwell.
  */
 function at(state: GameState, elapsedMs: number): GameState {
-  const next = entryAt(elapsedMs).state;
+  const entry = entryAt(elapsedMs);
+  const next = entry.state;
+  const crossed = entry !== entryAt(state.tickRemainderMs);
   const keepsFocus =
     state.activeId !== null && next.queue.some((waiting) => waiting.id === state.activeId);
   return {
@@ -84,14 +120,25 @@ function at(state: GameState, elapsedMs: number): GameState {
     activeId: keepsFocus ? state.activeId : next.activeId,
     rngState: state.rngState,
     tickRemainderMs: elapsedMs,
+    frameEvents: crossed ? next.frameEvents : NO_EVENTS,
   };
 }
 
-/** One entry further along the replay, clamped at the end. */
+/**
+ * One entry further along the replay.
+ *
+ * At the last entry there is nowhere to step to, so the state comes back
+ * unchanged — `step` is total over `GameState`, and the stub's exports are
+ * public, so a caller may legitimately hand in a `break`-phase state parked at
+ * the end of the script. Below the last entry the target is always
+ * `next.atMs`: `entryAt(cursor) === TIMELINE[index]` means the cursor has not
+ * yet reached `TIMELINE[index + 1]`, so no `Math.max` is needed to keep the
+ * cursor moving forwards.
+ */
 function step(state: GameState): GameState {
   const index = TIMELINE.indexOf(entryAt(state.tickRemainderMs));
-  const next = TIMELINE[Math.min(index + 1, LAST_INDEX)];
-  return at(state, Math.max(state.tickRemainderMs, next.atMs));
+  if (index === LAST_INDEX) return state;
+  return at(state, TIMELINE[index + 1].atMs);
 }
 
 /** R5 and R19 — the two states in which every player action is swallowed. */
@@ -123,6 +170,11 @@ export function tick(state: GameState, dtMs: number): GameState {
   const advanceMs = Math.max(0, Math.trunc(dtMs));
   // §10.3's identity clause, and R19's total no-op while paused.
   if (advanceMs === 0 || state.phase === 'paused') return state;
+  // The one divergence — walking out of `break` on time — stops at the end of
+  // the script. Past the last entry §10.3's identity clause applies in full, so
+  // the game-over card is handed the same reference every frame rather than an
+  // equal-but-new object 60 times a second.
+  if (entryAt(state.tickRemainderMs) === TIMELINE[LAST_INDEX]) return state;
   return at(state, state.tickRemainderMs + advanceMs);
 }
 
