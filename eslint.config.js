@@ -81,24 +81,33 @@ const ENGINE_INDIRECTION = 'src/app/EngineContext.tsx';
  * The two implementations of the engine contract, banned everywhere under
  * `src/` except `ENGINE_INDIRECTION`.
  *
- * Import specifiers are matched as written, gitignore-style, and never
- * resolved — so both the cross-directory form (`../game/engine`, which the
- * globstar patterns catch) and the sibling form (`./engine` from inside
- * `src/game/`) have to be spelled out. Missing the sibling form would leave
- * the logic track free to reach the engine through a relative import, which is
- * precisely the coupling §10.5 exists to prevent.
+ * **These patterns match the module's *last segment*, deliberately.** Import
+ * specifiers are matched as written, gitignore-style, and never resolved, so a
+ * ban is only as good as the spellings it enumerates. An earlier revision
+ * required a literal `game/` or `dev/` segment in the pattern and listed the
+ * sibling form (`./engine`) beside it, which left the *parent* form wide open:
+ * `src/dev/gallery/Foo.tsx` importing `'../stubEngine'` matched neither
+ * spelling, and PRD §10.2 ships `src/dev/gallery/` as a sibling directory of
+ * `src/dev/stubEngine.ts` — so `'../stubEngine'` is the natural spelling from
+ * the likeliest caller. `'../engine'` from any future `src/game/` subdirectory
+ * had the same hole. Matching on the last segment closes every relative depth
+ * at once instead of enumerating `../`, `../../`, `../../../` forever.
+ *
+ * Two consequences worth stating:
+ *
+ *   - A third-party specifier whose last segment is `engine` (a bare `engine`
+ *     package, or `some-lib/engine`) is denied too, with a §10.5 message. PRD
+ *     §10.1's stack has no such dependency, and the alternative — enumerating
+ *     relative prefixes to a fixed depth — reopens the hole this closes.
+ *   - The ban stays *narrow* on purpose: `src/dev/fixtures` is Track B's render
+ *     input under §10.5 and must remain importable from the presentation
+ *     track. Broadening this to the whole of `dev/` would break the gallery.
+ *
+ * Every one of these four patterns is mutation-covered by
+ * `tests/lint/seam.test.ts` — see the relative-spelling block there.
  */
 const ENGINE_GROUP = {
-  group: [
-    '**/game/engine',
-    '**/game/engine.*',
-    '**/dev/stubEngine',
-    '**/dev/stubEngine.*',
-    './engine',
-    './engine.*',
-    './stubEngine',
-    './stubEngine.*',
-  ],
+  group: ['**/engine', '**/engine.*', '**/stubEngine', '**/stubEngine.*'],
   message:
     'PRD §10.5: `src/app/EngineContext.tsx` is the only module that may name ' +
     '`src/game/engine` or `src/dev/stubEngine`. Take state as props or read ' +
@@ -189,6 +198,14 @@ const PRESENTATION_IMPORT_BANS = [
  * cannot be the mechanism (§10.5). The last three are bare identifiers, matched
  * as identifiers rather than as calls so that `const t = setTimeout` is caught
  * alongside `setTimeout(...)`.
+ *
+ * That identifier form has a wider blast radius than "a scheduler call": an
+ * `Identifier` node also covers type positions and property keys, so
+ * `type X = { setTimeout: number }` inside `src/game/` would fail lint. That is
+ * accepted. §3 constraint 7 makes the whole logic track clock-free, so a member
+ * named after a scheduler there is far more likely to be the smuggled
+ * dependency than a false positive, and narrowing the selector to a call would
+ * let `const t = setTimeout` through.
  */
 const PURITY_MESSAGE =
   'PRD §3 constraint 7: no wall clock and no ambient randomness inside `src/game/`. ' +

@@ -155,6 +155,13 @@ describe('S7-1 — the logic track imports nothing from the presentation track',
     'src/storage/*': '../storage/local',
     'a plain stylesheet': '../styles/tokens.css',
     'a CSS module': './Shell.module.css',
+    // The probe imported `./engine` from the start; nothing asserted it until a
+    // mutation test showed the sibling engine forms could be deleted from the
+    // config with every test in `tests/lint/` still green. §10.5's whole point
+    // is that `src/game/` cannot reach its own engine except through
+    // `EngineContext.tsx`, so the relative spelling is the one that matters
+    // most here.
+    'the engine, relatively': './engine',
   };
 
   for (const [label, specifier] of Object.entries(BANNED)) {
@@ -246,6 +253,64 @@ describe('S7-1 — EngineContext is the only permitted importer', () => {
 });
 
 /*
+ * The relative spellings, which are the ones a real caller reaches for.
+ *
+ * `no-restricted-imports` matches the specifier as written and never resolves
+ * it, so a ban is only as good as the spellings it covers. An earlier revision
+ * of `eslint.config.js` covered the directory-qualified form and the sibling
+ * form but not the *parent* form, which left `src/dev/gallery/Foo.tsx`
+ * importing `'../stubEngine'` linting clean — and PRD §10.2 ships
+ * `src/dev/gallery/` as a sibling of `src/dev/stubEngine.ts`, so that is the
+ * natural spelling from the likeliest caller. The tree-wide grep below would
+ * have caught such an import after the fact; §10.5's mitigation is that the
+ * *linter* tells the agent at edit time.
+ *
+ * Every one of `ENGINE_GROUP`'s four patterns is covered here: deleting any of
+ * them reddens at least one assertion in this block.
+ */
+describe('S7-1 — the engine is denied in every relative spelling', () => {
+  it('denies the parent form from a sibling directory of the stub engine', async () => {
+    const result = await probe('src/dev/gallery/__seam-probe.generated.tsx', [
+      "import { stubEngine } from '../stubEngine';",
+      // The extensioned spelling — Node-style ESM resolution writes `.js` even
+      // for a TypeScript source, so it is not exotic.
+      "import { reset } from '../stubEngine.js';",
+      "import { create } from '../../dev/stubEngine';",
+      // Legal, and here on purpose: §10.5 has Track B render `src/dev/fixtures`,
+      // so a ban broadened to the whole of `dev/` would break the gallery this
+      // probe stands in for.
+      "import { drinks } from '../fixtures';",
+      'export const probe = { stubEngine, reset, create, drinks };',
+    ]);
+
+    const sources = restrictedSources(result);
+    expect(sources, 'the parent form of the stub engine is not denied').toContain('../stubEngine');
+    expect(sources, 'the extensioned parent form is not denied').toContain('../stubEngine.js');
+    expect(sources).toContain('../../dev/stubEngine');
+    expect(
+      sources,
+      'PRD §10.5 has Track B render `src/dev/fixtures`; the engine ban must not reach it',
+    ).not.toContain('../fixtures');
+  }, 300_000);
+
+  it('denies the parent form from a subdirectory of the logic track', async () => {
+    const result = await probe('src/game/sub/__seam-probe.generated.ts', [
+      "import { tick } from '../engine';",
+      "import { create } from '../engine.js';",
+      // The seam itself, from the same depth: still importable.
+      "import type { GameState } from '../types';",
+      'export const probe = { tick, create };',
+      'export type ProbeState = GameState;',
+    ]);
+
+    const sources = restrictedSources(result);
+    expect(sources, 'the parent form of the engine is not denied').toContain('../engine');
+    expect(sources, 'the extensioned parent form is not denied').toContain('../engine.js');
+    expect(sources).not.toContain('../types');
+  }, 300_000);
+});
+
+/*
  * The tree-wide grep S7-1 requires. Lint enforces the rule going forward; this
  * asserts the property holds over the tree as it stands, including any file a
  * future config edit might accidentally scope out of the rule.
@@ -314,6 +379,17 @@ describe('S7-2 — the purity ban is AST selectors, not restricted globals', () 
     // The fixture glob is what makes S7-3's committed fixtures live proof; drop
     // it and the fixtures silently pass.
     expect(files).toContain('tests/lint/fixtures/game-*.{ts,tsx}');
+  });
+
+  it('scopes the presentation seam to the two tracks and the component-* fixtures', () => {
+    // The mirror of the assertion above. Both fixture globs are equally
+    // load-bearing — `component-imports-engine.tsx` only proves anything
+    // because `kopi/presentation-seam` reaches its real on-disk path.
+    const block = blockNamed(config, 'kopi/presentation-seam');
+    const files = (block.files ?? []).flat();
+    expect(files).toContain('src/components/**/*.{ts,tsx}');
+    expect(files).toContain('src/graphics/**/*.{ts,tsx}');
+    expect(files).toContain('tests/lint/fixtures/component-*.{ts,tsx}');
   });
 
   it('bans the three member expressions with CallExpression > MemberExpression selectors', () => {

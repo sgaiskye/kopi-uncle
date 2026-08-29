@@ -52,11 +52,39 @@ function fixturePath(name: FixtureName): string {
   return join(FIXTURE_DIR, name);
 }
 
-/** The committed, compliant logic-track sources — the negative control. */
+/**
+ * A short-lived probe another sprint's test wrote, not a committed source.
+ *
+ * `tests/scaffold/lint-config.test.ts` (S2-1) writes `__lint-probe.generated.ts`
+ * — a *deliberate* `no-floating-promises` violation — and a clean sibling into
+ * `src/game/`, then removes them again. Used twice: to keep those probes out of
+ * the negative control below, and to recognise them in a gate stage's failure
+ * output (see `runScriptStably`).
+ */
+const GENERATED_PROBE = /\.generated\./u;
+
+/**
+ * The committed, compliant logic-track sources — the negative control.
+ *
+ * **Generated probes are excluded, and that is load-bearing.** Vitest runs test
+ * files in parallel workers, so S2-1's write window overlaps this enumeration.
+ * Including a probe would produce one of two false reds: the deliberate
+ * violation reported against an assertion that says the file "is compliant and
+ * must lint clean", or — if the probe is removed between `readdirSync` and
+ * `lintFiles` — a hard throw, because `lintFiles` on a vanished explicit path
+ * reports `No files matching '…' were found` rather than skipping it. Filtering
+ * removes the race outright; the fixtures under test are all committed files
+ * with known names, so nothing real is filtered out.
+ *
+ * Recursive, so the control does not silently narrow the day `src/game/` grows
+ * a subdirectory. §10.2 keeps it flat today.
+ */
 function gameSources(): string[] {
   const dir = join(ROOT, 'src', 'game');
-  return readdirSync(dir)
-    .filter((name) => name.endsWith('.ts') || name.endsWith('.tsx'))
+  // `encoding` is what pins the overload to `string[]`; without it the
+  // recursive signature widens to `string[] | Buffer[]`.
+  return readdirSync(dir, { recursive: true, encoding: 'utf8' })
+    .filter((name) => /\.tsx?$/u.test(name) && !GENERATED_PROBE.test(name))
     .map((name) => join(dir, name));
 }
 
@@ -231,16 +259,33 @@ function runScript(script: string): ScriptRun {
  *
  * The two sprints are file-disjoint and neither is wrong, so the collision is
  * absorbed here rather than by editing a file this sprint does not own. Only a
- * failure naming a generated probe is retried; a real violation fails on the
- * first attempt, and a persistent probe collision still fails the assertion
- * rather than passing quietly.
+ * failure naming a generated probe is retried — the pattern requires the
+ * `.generated.` path segment and nothing else, so an unrelated `ENOENT` is not
+ * retried through. A real violation fails on the first attempt, and a
+ * persistent probe collision still fails the assertion rather than passing
+ * quietly. Both failure texts that matter carry the path: ESLint's
+ * `No files matching '…/src/game/__lint-probe.generated.ts' were found` and
+ * `tsc`'s `ENOENT` both name the file they could not read.
+ *
+ * This is the same pattern `gameSources()` filters on, and deliberately so:
+ * one definition of "another sprint's probe", used to exclude it from the
+ * negative control and to recognise it in a gate stage's output.
  */
-const TRANSIENT_PROBE = /\.generated\.|ENOENT/u;
+
+/**
+ * Total attempts including the first, not the number of retries.
+ *
+ * Each attempt is a whole-tree `tsc` or `eslint` run nested inside
+ * `npm run test`, so the cap is deliberately low: three runs is enough for a
+ * probe window measured in milliseconds, and a collision that survives three
+ * whole-tree passes is not transient.
+ */
+const MAX_ATTEMPTS = 3;
 
 function runScriptStably(script: string): ScriptRun {
   let result = runScript(script);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (result.status === 0 || !TRANSIENT_PROBE.test(`${result.stdout}${result.stderr}`)) {
+  for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt += 1) {
+    if (result.status === 0 || !GENERATED_PROBE.test(`${result.stdout}${result.stderr}`)) {
       return result;
     }
     result = runScript(script);
