@@ -14,6 +14,9 @@
  * `types.test.ts` probes `castsIn`'s three cast forms; this file probes the
  * lexing underneath it.
  */
+import { readdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { castsIn, importSpecifiers, stripComments, stripCommentsAndStrings } from './source';
 
@@ -146,5 +149,71 @@ describe('the scanner still does what it did before regexes were in it', () => {
   it('does not let an escaped quote end a literal', () => {
     const source = "const message = 'it\\'s fine';\nconst spent = value as Drink;\n";
     expect(castsIn(source)).toEqual(['as Drink']);
+  });
+});
+
+/**
+ * What the scanner is pointed at, asserted as a property of this directory
+ * rather than left to be read off four files.
+ *
+ * The lexer is a heuristic, and the one ambiguity it cannot resolve from the
+ * left — whether a `/` divides or opens a regex — is decided by `startsRegex`.
+ * That decision is right for the shapes the three files it reads contain, and
+ * it is not claimed to be right for every shape in the language: S16's
+ * `parseOrder` regexes in `grammar.ts` are exactly the sort of input a
+ * token-blind guesser can get wrong, and a wrong guess throws (loudly, by
+ * design — but in a test file `grammar.ts`'s sprint does not own).
+ *
+ * The hole closes by aim rather than by cleverness. The lexer reads three named
+ * files: `types.ts` for §10.3's cast budget, and `view.ts` and `engine.ts` for
+ * their §10.5 import boundaries. Nothing else under `src/game/` is lexed, and
+ * that is asserted here so a future glob cannot re-open it silently.
+ */
+describe('the scanner is aimed at three named files, not at src/game/**', () => {
+  const CONTRACT_DIR = fileURLToPath(new URL('.', import.meta.url));
+  const GAME_DIR = fileURLToPath(new URL('../../src/game/', import.meta.url));
+  const SELF = basename(fileURLToPath(import.meta.url));
+
+  /** Every file in this directory that imports the scanner. */
+  const consumers = readdirSync(CONTRACT_DIR)
+    .filter((entry) => entry.endsWith('.ts'))
+    .map((entry) => ({ file: entry, text: readFileSync(join(CONTRACT_DIR, entry), 'utf8') }))
+    .filter(({ text }) => /from '\.\/source'/.test(text));
+
+  /** `src/game/` files a consumer loads as text — the idiom all three use. */
+  const aimedAt = new Set(
+    consumers.flatMap(({ text }) =>
+      [...text.matchAll(/new URL\('\.\.\/\.\.\/src\/game\/([\w.-]+)'/g)].map((match) => match[1]),
+    ),
+  );
+
+  it('is imported by exactly the three static checks, plus these probes', () => {
+    expect(consumers.map(({ file }) => file).sort()).toEqual([
+      'engine.test.ts',
+      SELF,
+      'types.test.ts',
+      'view.test.ts',
+    ]);
+  });
+
+  it('reads types.ts, view.ts and engine.ts, and nothing else under src/game/', () => {
+    expect([...aimedAt].sort()).toEqual(['engine.ts', 'types.ts', 'view.ts']);
+    // Not vacuous: `src/game/` holds more than the three, and the file it holds
+    // today that is deliberately not lexed is named so the gap is visible.
+    const present = readdirSync(GAME_DIR).filter((entry) => entry.endsWith('.ts'));
+    expect(present).toContain('config.ts');
+    expect([...aimedAt]).not.toContain('config.ts');
+    expect(present.length).toBeGreaterThan(aimedAt.size);
+  });
+
+  it('has no consumer that enumerates src/game/, which is how a fourth file would be lexed', () => {
+    // The cast budget was globbed over the directory until S3.1-2. A glob is
+    // the only way an unnamed file reaches the lexer, so both of its spellings
+    // are banned outright. These probes are exempt: they read the directory to
+    // make this very assertion, and they lex nothing from it.
+    for (const { file, text } of consumers.filter(({ file: name }) => name !== SELF)) {
+      expect(text, file).not.toContain('readdirSync');
+      expect(text, file).not.toContain("../../src/game/'");
+    }
   });
 });

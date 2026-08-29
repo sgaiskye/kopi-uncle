@@ -8,8 +8,7 @@
  * inside the Vitest run. A drifted contract is therefore a gate failure twice
  * over rather than a review opinion.
  */
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, expectTypeOf } from 'vitest';
 import {
@@ -36,8 +35,12 @@ import {
 import { SLOT_ORDER, SLOT_VALUES, VALID_DRINKS } from './drinks';
 import { castsIn } from './source';
 
-/** §10.3's cast budget is stated for the whole of `src/game/`, so scan it all. */
-const GAME_DIR = fileURLToPath(new URL('../../src/game/', import.meta.url));
+/**
+ * §10.3's cast budget is local to this one file — the "single place the
+ * unavoidable cast lives" — so the scan is pointed at it and at nothing else.
+ * See the budget test below for why the glob that used to be here was wrong.
+ */
+const TYPES_FILE = fileURLToPath(new URL('../../src/game/types.ts', import.meta.url));
 
 describe('§10.3 unions', () => {
   it('declares Phase, Mode, Tier, ShiftId, Mood and ServeResult verbatim', () => {
@@ -264,30 +267,28 @@ describe('§10.3 setSlot', () => {
     // type-aware linter lands. What must never happen is a *second* cast
     // appearing, so the budget is asserted rather than the exact count.
     //
-    // The budget `types.ts` claims is for the whole of `src/game/`, so the scan
-    // covers the whole directory rather than only the file that states it:
-    // a cast smuggled into `config.ts`, `view.ts` or `engine.ts` — the three
-    // files later sprints edit — spends the same single allowance.
-    const files = readdirSync(GAME_DIR).filter((entry) => entry.endsWith('.ts'));
-    // Not vacuous: the four §10.5 files at minimum, and `types.ts` among them.
-    expect(files.length).toBeGreaterThanOrEqual(4);
-    expect(files).toContain('types.ts');
-
-    const texts = files.map((file) => ({ file, text: readFileSync(join(GAME_DIR, file), 'utf8') }));
-    const spent = texts.flatMap(({ file, text }) =>
-      castsIn(text).map((cast) => `${file}: ${cast}`),
-    );
+    // The budget is read where §10.3 puts it: `types.ts` alone. It was briefly
+    // globbed over the whole of `src/game/` — a cycle-1 non-blocker asked for
+    // the wider net — and PR #4 cycle 2 raised that back as a plan finding,
+    // because one justified `map.get(key)!` in `queue.ts` or `scoring.ts` would
+    // then red a test in `tests/contract/**`, which only Sprint 3 declares and
+    // which the sprint tripping it has no legal way to edit. The Sprint 3 sync
+    // ruled the budget local to this file, which is what S3-1's criterion and
+    // §10.3's prose both say. Cast discipline in every other `src/game/` file
+    // belongs to Sprint 2's type-aware linter — `no-unnecessary-type-assertion`
+    // is already at `error`, and each sprint owns the files it runs over.
+    // Reversible by restoring the glob.
+    const text = readFileSync(TYPES_FILE, 'utf8');
+    const spent = castsIn(text).map((cast) => `types.ts: ${cast}`);
     expect(spent.length, `casts found — ${spent.join(', ')}`).toBeLessThanOrEqual(1);
 
     // Not vacuous in the other direction either. A scanner that stopped reading
-    // part-way through a file — the way an unlexed regex literal's quote once
+    // part-way through the file — the way an unlexed regex literal's quote once
     // made it — reports an empty list, and this bound then holds whatever the
-    // files contain. So every file is scanned a second time with a cast appended,
-    // and the cast has to be found: proof the scan reaches the end of each of
-    // them and that the check above was looking at the whole file.
-    for (const { file, text } of texts) {
-      expect(castsIn(`${text}\nconst probe = value as Drink;\n`), file).toContain('as Drink');
-    }
+    // file contains. So it is scanned a second time with a cast appended, and
+    // the cast has to be found: proof the scan reaches the end of the file and
+    // that the check above was looking at the whole of it.
+    expect(castsIn(`${text}\nconst probe = value as Drink;\n`)).toContain('as Drink');
   });
 
   it('detects all three cast forms, so the budget cannot be spent around it', () => {

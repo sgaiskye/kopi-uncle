@@ -18,7 +18,7 @@ import { CONFIG } from '../../src/game/config';
 import * as engine from '../../src/game/engine';
 import { applyAction, createInitialState, tick } from '../../src/game/engine';
 import type { Action, GameState, Mode } from '../../src/game/types';
-import { importSpecifiers, stripComments } from './source';
+import { importSpecifiers, stripComments, stripCommentsAndStrings } from './source';
 
 const SOURCE = readFileSync(new URL('../../src/game/engine.ts', import.meta.url), 'utf8');
 
@@ -102,9 +102,36 @@ describe('§10.5 — the three signatures, and only those three', () => {
     for (const banned of ['react', 'react-dom']) {
       expect(specifiers, banned).not.toContain(banned);
     }
-    const code = stripComments(SOURCE);
+    // Read over code with comments *and string literals* stripped: a
+    // `document` inside a string is not a DOM access, and the file this reads
+    // is one Sprint 21 rewrites without owning this test.
+    const code = stripCommentsAndStrings(SOURCE);
     for (const global of ['document', 'window', 'navigator', 'localStorage']) {
       expect(code, global).not.toMatch(new RegExp(`\\b${global}\\b`));
+    }
+  });
+
+  it('reads the DOM denylist from code, and only from code', () => {
+    // Both halves of the control for the line above. Stripping strings as well
+    // as comments must not have turned the check off — an access written in
+    // code is still found — and it must have turned off exactly the false
+    // positive it was meant to: a global named inside a string literal or a
+    // comment is prose about the DOM, not the DOM. Probed on synthetic sources,
+    // because the real file is required to contain neither shape.
+    for (const global of ['document', 'window', 'navigator', 'localStorage']) {
+      const bites = stripCommentsAndStrings(`const has = typeof ${global} !== 'x';\n`);
+      expect(bites, global).toMatch(new RegExp(`\\b${global}\\b`));
+      for (const prose of [
+        `const message = 'never reach for ${global}';\n`,
+        `const message = "never reach for ${global}";\n`,
+        `const message = \`never reach for ${global}\`;\n`,
+        `// never reach for ${global}\n`,
+        `/* never reach for ${global} */\n`,
+      ]) {
+        expect(stripCommentsAndStrings(prose), prose.trim()).not.toMatch(
+          new RegExp(`\\b${global}\\b`),
+        );
+      }
     }
   });
 });
