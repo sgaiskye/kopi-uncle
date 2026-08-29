@@ -1,0 +1,61 @@
+/*
+ * PRD §9.2 (palette) and §9.3 (typography) — declared once, for the whole app.
+ *
+ * Every colour in the tree resolves through one of the six palette tokens
+ * below. §9.2 permits exactly six foreground/background pairings for text and
+ * forbids the rest; `tests/styles/tokens.test.ts` parses these values and
+ * asserts each approved pair clears 4.5:1 and each forbidden pair does not, so
+ * §9.7's WCAG AA floor is a gate failure rather than a review opinion. A hex
+ * literal anywhere under `src/` outside this file fails that suite.
+ *
+ * Both faces are bundled by @fontsource, latin subsets only, never fetched from
+ * a CDN (§3.3). The imports come first because CSS requires it.
+ */
+
+@import '@fontsource/anton/latin-400.css';
+@import '@fontsource/nunito-sans/latin-400.css';
+@import '@fontsource/nunito-sans/latin-700.css';
+
+:root {
+  /*
+   * §9.2 palette.
+   *
+   *   --condensed-cream  the page background
+   *   --teak             primary text, and the outline colour on all SVG
+   *   --kopitiam-green   chrome: header, counter surface, primary buttons
+   *   --kaya-yellow      score, combo, active slot — only ever as a background
+   *                      or fill behind --teak, never as text on cream (1.61:1)
+   *   --chilli-red       errors, the last heart, the `angry` mood band
+   *   --tile-teal        decorative only — floor tile, dividers, rules;
+   *                      3.01:1 on cream, so never used for text
+   */
+  --kopitiam-green: #0e6b4f;
+  --tile-teal: #2a9d8f;
+  --kaya-yellow: #f4b93e;
+  --chilli-red: #d62828;
+  --condensed-cream: #fff3d6;
+  --teak: #4a2c18;
+
+  /*
+   * §9.3 type scale. Each token is named for the pixel value it carries, so
+   * "active order text is 28px or larger on every viewport" is satisfied by
+   * naming --step-28 rather than by reading a number out of a stylesheet.
+   */
+  --step-12: 12px;
+  --step-14: 14px;
+  --step-16: 16px;
+  --step-20: 20px;
+  --step-28: 28px;
+  --step-40: 40px;
+  --step-64: 64px;
+
+  /*
+   * §9.3 font stacks. Both fallbacks are metric-compatible and both faces load
+   * with `font-display: swap`, so a slow font shifts no layout.
+   *
+   *   display  logo, score, headings — hand-painted stall signage
+   *   body     labels, buttons, the order bubble — friendly numerals
+   */
+  --font-family-display: 'Anton', 'Arial Narrow', system-ui, sans-serif;
+  --font-family-body: 'Nunito Sans', system-ui, -apple-system, sans-serif;
+}

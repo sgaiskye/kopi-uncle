@@ -1,9 +1,12 @@
 /*
- * The two colour literals below are PRD §9.2's teak-on-cream pair (11.44:1),
- * the only approved pairing for body text. S5-1 (Sprint 5 — design tokens)
- * replaces them with var(--teak) / var(--condensed-cream) once
- * src/styles/tokens.css lands; the contrast test resolves either form.
+ * S5-1 closes S1-2's inlined colour literals: the teak-on-cream pair (§9.2,
+ * 11.44:1) now resolves through `src/styles/tokens.css`, which this file pulls
+ * in so that the tokens and both @fontsource faces reach the built app. S12-1
+ * builds the real title screen on top of them.
  */
+
+@import '../styles/tokens.css';
+
 .screen {
   display: flex;
   flex-direction: column;
@@ -12,32 +15,44 @@
   gap: 0.75rem;
   min-height: 100vh;
   padding: 2rem 1rem;
-  background-color: #fff3d6;
-  color: #4a2c18;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+  background-color: var(--condensed-cream);
+  color: var(--teak);
+  font-family: var(--font-family-body);
   text-align: center;
 }
 
 .wordmark {
   margin: 0;
-  font-family: 'Arial Narrow', system-ui, sans-serif;
-  font-size: 3.5rem;
-  font-weight: 700;
+  /*
+   * §9.3 puts the logo at --step-64. Anton is condensed but "KOPI UNCLE" plus
+   * its tracking still overruns a 360px viewport at 64px, and §4.1 admits no
+   * horizontal scroll there, so the smallest target steps down one notch.
+   */
+  font-size: var(--step-40);
+  font-family: var(--font-family-display);
+  font-weight: 400;
   letter-spacing: 0.06em;
   line-height: 1;
 }
 
+@media (min-width: 480px) {
+  .wordmark {
+    font-size: var(--step-64);
+  }
+}
+
 .tagline {
   margin: 0;
-  font-size: 1.125rem;
-  font-style: italic;
+  font-size: var(--step-20);
+  /*
+   * No `font-style: italic`: §9.3 imports the `normal` Nunito Sans faces only,
+   * so an italic here would be a browser-synthesised oblique of a condensed
+   * body face rather than a drawn one. The type scale carries the emphasis.
+   */
 }
 
 .scaffoldNote {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--step-14);
   opacity: 0.75;
 }
