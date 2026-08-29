@@ -101,6 +101,32 @@ Every sprint declares `**Dependencies:**` and `**Touches:**`. Both are read by
   is declared as one — Sprint 41 → Sprint 40 on `EngineContext.tsx`, Sprint 42 →
   Sprint 41 on `engine.ts`. Never leave it to luck.
 
+#### Concurrent `npm run e2e` is unsafe — and `Touches:` cannot see it
+
+**This is the one hazard disjoint `Touches:` paths do not protect you from, and it
+is not expressible as a dependency edge**, because *every* sprint's quality gate ends
+in `npm run e2e`. Serialising on it would serialise the whole plan.
+
+S6-1's acceptance criteria mandate two things that interact badly across worktrees:
+`npm run e2e` binds the **fixed port 4317** with `--strictPort`, and
+`reuseExistingServer: !process.env.CI`. Two runners in two worktrees hitting the gate
+at the same moment therefore either **collide on the port**, or — worse, and silently —
+the second **reuses the first worktree's preview server** and asserts against a `dist/`
+built from different source under a possibly different base path. That is a false green
+or a false red with no diff to explain it.
+
+Rules for the loop:
+
+1. **Never run two `npm run e2e` invocations on this machine at once.** A runner that
+   is about to enter the e2e stage waits for any other runner's e2e stage to finish.
+   Concurrent *sprints* are fine; concurrent *e2e stages* are not.
+2. **Set `CI=1` when running the gate from a worktree.** That forces
+   `reuseExistingServer: false`, which converts the silent cross-serve into a loud
+   port-bind failure. S13-2 makes `scripts/e2e.mjs` do this for itself.
+3. **A red e2e that mentions port 4317, `EADDRINUSE`, or a wordmark that renders but
+   under the wrong base path, is a collision until proven otherwise.** Re-run the stage
+   alone before treating it as a defect in the sprint under review.
+
 ### M3 work with no engine dependency is scheduled early, on purpose
 
 `daily.ts`, the storage wrapper, the title screen and the How to Play reference
@@ -405,7 +431,7 @@ committed golden fixtures.
 
 ---
 
-## Sprint 6 — Playwright under the base path [IN PROGRESS]
+## Sprint 6 — Playwright under the base path [DONE]
 
 **Goal:** Put a real browser runner behind `npm run e2e` against the built app on its real subpath, so that a base-path regression fails the gate rather than production.
 
@@ -419,12 +445,12 @@ committed golden fixtures.
 *As the implementing agent, I want e2e to run against the built app on its real subpath, so that a base-path regression fails the gate rather than production.*
 
 **Acceptance criteria:**
-- [ ] `playwright.config.ts` has `testDir: 'tests/e2e'` and a `projects` array of length exactly 1, chromium — asserted by a unit test importing the config.
-- [ ] `webServer` runs `vite preview` against a fresh build on a fixed strict port, with `url` including whatever base path the build resolved — read from the Vite config, never written as a literal — and `reuseExistingServer: !process.env.CI`.
-- [ ] `use.baseURL` ends with that same resolved base path, so a relative `page.goto('./')` resolves under it; running the suite with `GITHUB_REPOSITORY=acme/demo` set still passes, proving nothing is pinned to one repository name.
-- [ ] `tests/e2e/smoke.spec.ts` navigates relatively and asserts the `KOPI UNCLE` wordmark is visible; `npm run e2e` exits 0 from a clean checkout with no server already running.
-- [ ] Only chromium binaries are required: `npx playwright install --with-deps chromium` is sufficient for `npm run e2e` to pass on a machine with no other browsers installed.
-- [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
+- [x] `playwright.config.ts` has `testDir: 'tests/e2e'` and a `projects` array of length exactly 1, chromium — asserted by a unit test importing the config.
+- [x] `webServer` runs `vite preview` against a fresh build on a fixed strict port, with `url` including whatever base path the build resolved — read from the Vite config, never written as a literal — and `reuseExistingServer: !process.env.CI`.
+- [x] `use.baseURL` ends with that same resolved base path, so a relative `page.goto('./')` resolves under it; running the suite with `GITHUB_REPOSITORY=acme/demo` set still passes, proving nothing is pinned to one repository name.
+- [x] `tests/e2e/smoke.spec.ts` navigates relatively and asserts the `KOPI UNCLE` wordmark is visible; `npm run e2e` exits 0 from a clean checkout with no server already running.
+- [x] Only chromium binaries are required: `npx playwright install --with-deps chromium` is sufficient for `npm run e2e` to pass on a machine with no other browsers installed.
+- [x] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
 
 ---
 
@@ -641,9 +667,21 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Goal:** Close M0 by naming the implementation in exactly one module and opening the seam that lets Playwright fast-forward time.
 
 **Track:** M0 fan
-**Estimate:** 3.5h augmented
+**Estimate:** 4.5h augmented
 **Dependencies:** Sprint 6, Sprint 7, Sprint 9
-**Touches:** `src/app/EngineContext.tsx`, `tests/e2e/seam.spec.ts`
+**Touches:** `src/app/EngineContext.tsx`, `tests/e2e/seam.spec.ts`, `playwright.config.ts`, `scripts/e2e.mjs`, `tests/e2e/playwright-config.test.ts`
+
+**Why it owns `playwright.config.ts` and `scripts/e2e.mjs` (PF-9).** Sprint 6 shipped
+the runner with a single fixed `webServer` and no `VITE_E2E`, and both its implementer
+and its reviewer declined to plumb the flag there *on purpose*: a build that carries it
+unconditionally is no longer the production build §10.7 wants asserted clean. After
+Sprint 6 those two files appeared in no `Touches:` line at all, yet Sprints 13, 31, 33
+and 45 all need the runner's build to carry `VITE_E2E=1`. This sprint is the first that
+cannot avoid it — S13-1's `advance(20000)` spec needs `window.__KOPI__` inside a *built*
+app — so the two-pass shape lands here, and the three consumers are ordered behind it.
+`tests/e2e/playwright-config.test.ts` is declared too, because Sprint 6's own config
+assertions (one `webServer`, `--port 4317`, `url === E2E_BASE_URL`) necessarily move
+when a second pass appears, and S13-2 must be able to edit the test that guards them.
 
 ### S13-1 — `EngineContext.tsx` and the `VITE_E2E` test seam
 
@@ -658,6 +696,47 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 - [ ] `?seed=` and `?date=` query params are parsed and consumed at `START_RUN`; a malformed or non-numeric `seed` falls back to a defined default and never throws into the UI, asserted by a unit test.
 - [ ] The seam is stripped from production: `npm run build` produces a `dist/` in which `__KOPI__` appears zero times; `VITE_E2E=1 npm run build` produces one in which it appears — both grep assertions.
 - [ ] M0's exit criterion per §12.1 is met: a fixture-driven probe component renders a queue card from `src/dev/fixtures.ts` on the live page, importing nothing outside §10.5's `types.ts`, `view.ts` and the three signatures; lint proves the import restriction and a Playwright assertion confirms the rendered order text is exactly `formatOrder` of the fixture's drink.
+
+---
+
+### S13-2 — The e2e runner carries `VITE_E2E`, in a second pass
+
+*As the implementing agent, I want the Playwright runner to build the app twice — once with the seam and once without — so that the seam is reachable from a spec while the production bundle is still asserted clean.*
+
+**Technical context:** `scripts/e2e.mjs` as Sprint 6 shipped it already drives multiple
+passes with per-pass environments, so this is a second pass rather than a second
+`webServer` — one fixed `webServer` cannot express two different builds, which is the
+shape PF-10 named. Sprint 31 depends on this because its gallery spec needs the seam
+pass *and* its strip assertion needs a plain production build in the same
+`npm run e2e`; Sprint 33 inherits it through Sprint 31 and Sprint 45 through
+Sprint 40 → Sprint 36 → Sprint 13.
+
+**Acceptance criteria:**
+- [ ] `scripts/e2e.mjs` drives two passes with distinct environments: a **seam pass**
+      whose build carries `VITE_E2E=1`, and a **production pass** whose build carries no
+      `VITE_E2E` at all. A test reads the runner's pass table and asserts exactly one
+      pass sets `VITE_E2E` and at least one sets none.
+- [ ] Every spec file under `tests/e2e/` is matched by exactly one pass. The runner exits
+      non-zero, naming the file, if a committed `*.spec.ts` is matched by no pass or by
+      more than one — a spec cannot silently land in the wrong build.
+- [ ] Base-path resolution is unchanged across both passes: each pass's `url` and
+      `use.baseURL` still end with `basePathFor(process.env.GITHUB_REPOSITORY)` read from
+      `vite.config.ts`, never written as a literal, and the suite still passes with
+      `GITHUB_REPOSITORY=acme/demo` set.
+- [ ] The browser set is unchanged: chromium only, and
+      `npx playwright install --with-deps chromium` remains sufficient. If S6-1's
+      `projects.toHaveLength(1)` assertion must move, it moves to a count of *chromium*
+      projects — never to a second browser.
+- [ ] Sprint 6's `tests/e2e/smoke.spec.ts` still runs and passes (Sprint 8's Vitest
+      exclusion asserts against that file), and `tests/e2e/seam.spec.ts` runs in the seam
+      pass.
+- [ ] `reuseExistingServer` stays `!process.env.CI` per S6-1, and `scripts/e2e.mjs` sets
+      `CI=1` for the passes it spawns unless it is already set — so two worktrees running
+      `npm run e2e` fail loudly on the bound port 4317 rather than one silently previewing
+      the other's `dist/` (see *Concurrent `npm run e2e` is unsafe* below). Asserted by a
+      test on the resolved config.
+- [ ] `npm run e2e` exits 0 from a clean checkout with no server already running.
+- [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
 
 ---
 
@@ -1232,12 +1311,12 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Technical context:** Row order, row labels and value labels all come from `SLOT_ROW_LABELS` and `SLOT_VALUE_LABELS` in the frozen view barrel (§10.5). Restating any of them as a literal in the component would let the two tracks disagree silently, so the tests grep for that. R18 is the trap here: the two condensed-milk-invalid sugar buttons must stay live and tappable, marked but never disabled.
 
 **Acceptance criteria:**
-- [ ] `src/components/SlotSelectors.tsx` and `SlotSelectors.module.css` exist and take
+- [ ] `src/components/slots/SlotSelectors.tsx` and `SlotSelectors.module.css` exist and take
       `{ builder: Drink, lockoutMs: number, dispatch }`.
 - [ ] Rows render in §7.1 declaration order — base, milk, sugar, strength, temperature,
       vessel — with labels deep-equal to `Object.values(SLOT_ROW_LABELS)`: `BASE`, `MILK`,
       `SUGAR`, `BREW`, `TEMP`, `TAKE` per the §9.5 wireframe.
-- [ ] No label literals in the component: `grep -nE '"(BASE|MILK|SUGAR|BREW|TEMP|TAKE|siew|kosong|gao|da bao)"' src/components/SlotSelectors.tsx`
+- [ ] No label literals in the component: `grep -nE '"(BASE|MILK|SUGAR|BREW|TEMP|TAKE|siew|kosong|gao|da bao)"' src/components/slots/SlotSelectors.tsx`
       exits non-zero, wired as a test.
 - [ ] Exactly 16 value buttons render (2 + 3 + 4 + 3 + 2 + 2), asserted as a single count
       and per row.
@@ -1513,8 +1592,8 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Technical context:** §9.6's "one chunk" rule is why face, order and ring share a single card with a single tap target — the rejected alternative split one 44px target into three and pushed all orders below the 28px floor. The 28px floor is absolute: shrink-to-fit to make the longest order fit is a failure, not a fix.
 
 **Acceptance criteria:**
-- [ ] `src/components/QueueCard.tsx`, `QueueCard.module.css` and
-      `src/components/QueueList.tsx` exist, taking `{ queue, activeId, dispatch }` from
+- [ ] `src/components/queue/QueueCard.tsx`, `QueueCard.module.css` and
+      `src/components/queue/QueueList.tsx` exist, taking `{ queue, activeId, dispatch }` from
       `src/game/types.ts`.
 - [ ] One chunk per customer (§9.6): each card has exactly one focusable descendant —
       the card root itself — asserted by querying focusable nodes within a card and
@@ -1562,7 +1641,7 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Technical context:** §9.6 puts the mood enum in exactly one place — `moodFor` in the frozen view barrel — and forbids either track recomputing the ratio. The two boundary values belong to the lower band, so `p = 0.60` is `impatient` and `p = 0.30` is `angry`; the M0 catalogue ships fixtures at exactly those values and this story asserts against them rather than against a locally derived number.
 
 **Acceptance criteria:**
-- [ ] `src/components/PatienceRing.tsx` and `src/components/MoodFace.tsx` exist, rendered
+- [ ] `src/components/queue/PatienceRing.tsx` and `src/components/queue/MoodFace.tsx` exist, rendered
       inside `QueueCard`.
 - [ ] The ring is continuous: `stroke-dasharray`/`stroke-dashoffset` computed from
       `patienceMs / maxPatienceMs`, asserted exactly at `p = 1`, `p = 0.5` and `p = 0`
@@ -1570,7 +1649,7 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 - [ ] The ring carries `role="progressbar"`, `aria-valuemin="0"`, `aria-valuemax="100"` and
       `aria-valuenow` equal to `Math.round(p * 100)`.
 - [ ] Mood comes only from `moodFor(patienceMs, maxPatienceMs)` in `src/game/view.ts`:
-      `grep -nE "0\.6|0\.3|patienceMs\s*/" src/components/QueueCard.tsx src/components/MoodFace.tsx`
+      `grep -nE "0\.6|0\.3|patienceMs\s*/" src/components/queue/QueueCard.tsx src/components/queue/MoodFace.tsx`
       exits non-zero, wired as a test (§9.6 — neither track recomputes the ratio).
 - [ ] Boundaries asserted at the exact fixtures: the `p === 0.60` fixture renders
       `impatient` and the `p === 0.30` fixture renders `angry`; a fixture just above each
@@ -1598,8 +1677,15 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 
 **Track:** Track B (presentation)
 **Estimate:** 3h augmented
-**Dependencies:** Sprint 5, Sprint 6, Sprint 9
+**Dependencies:** Sprint 5, Sprint 6, Sprint 9, Sprint 13
 **Touches:** `src/dev/gallery/**`, `tests/e2e/gallery.spec.ts`
+
+**Why it depends on Sprint 13 (PF-9/PF-10).** The gallery is mounted behind
+`import.meta.env.DEV || import.meta.env.VITE_E2E`, so `tests/e2e/gallery.spec.ts` is only
+reachable in a build that carries `VITE_E2E=1`, and the strip assertion needs a build that
+does not. S13-2 owns `playwright.config.ts` and `scripts/e2e.mjs` and establishes exactly
+those two passes. This sprint writes no runner code — it declares neither file — so the
+edge is ordering only.
 
 ### S31-1 — Fixture gallery route
 
@@ -1608,7 +1694,7 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Technical context:** The gallery is scaffolding under `src/dev/`, which an M2 story deletes wholesale (§10.5), so nothing outside `src/dev/` may import it. Mount it behind `import.meta.env.DEV || import.meta.env.VITE_E2E` — the same flag as §10.7's test seam — so Playwright can reach it in a built app while the production bundle stays clean.
 
 **Acceptance criteria:**
-- [ ] `src/dev/FixtureGallery.tsx` exists and enumerates the catalogue programmatically
+- [ ] `src/dev/gallery/FixtureGallery.tsx` exists and enumerates the catalogue programmatically
       via `Object.entries(fixtures)` from `src/dev/fixtures.ts` — adding a fixture later
       requires no gallery edit. A test asserts the rendered section count equals
       `Object.keys(fixtures).length`.
@@ -1622,17 +1708,20 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 - [ ] A test asserts every fixture satisfies R22 — `queue` is strictly ascending by `id`
       and `queue.length <= 3` (§8.7) — and that `comboTenths` is an integer in 10…30 (§8.8),
       so a malformed fixture fails here rather than in a component test.
-- [ ] `src/dev/FixtureGallery.test.tsx` mounts the gallery over the whole catalogue and
+- [ ] `src/dev/gallery/FixtureGallery.test.tsx` mounts the gallery over the whole catalogue and
       asserts zero `console.error` and zero `console.warn` calls.
 - [ ] The gallery and every module it renders import only from `src/game/types.ts`,
       `src/game/view.ts` and `src/dev/fixtures.ts`. The M0 boundary fixture under
       `tests/lint/fixtures/` — a presentation module importing `src/game/engine.ts` — still
       fails `npm run lint` with `no-restricted-imports`, asserted by the M0 ESLint-API test.
-- [ ] `tests/e2e/gallery.spec.ts` builds with `VITE_E2E=1`, loads `#/dev/gallery` at a
+- [ ] `tests/e2e/gallery.spec.ts` runs in S13-2's **seam pass** (`VITE_E2E=1`), loads `#/dev/gallery` at a
       360×640 viewport, and asserts `document.documentElement.scrollWidth === clientWidth`
       and that the count of `[data-testid^="fixture-"]` equals the catalogue length.
 - [ ] A production build strips it: `npm run build` (no `VITE_E2E`) followed by
-      `grep -rl "FixtureGallery" dist/assets` exits non-zero. Wired as a test, not a manual step.
+      `grep -rl "FixtureGallery" dist/assets` exits non-zero. Wired as a **Vitest** test in
+      `src/dev/gallery/FixtureGallery.test.tsx` that spawns the build itself, not as a
+      Playwright spec — that keeps the assertion inside this sprint's `Touches:` and off
+      S13-2's pass table.
 - [ ] `git diff --exit-code main -- package.json package-lock.json` exits zero — §11.3 forbids
       dependency edits inside a track sprint.
 - [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
@@ -1655,7 +1744,7 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Technical context:** Drive the card off `SLOT_ROW_LABELS` and `SLOT_VALUE_LABELS` from the frozen `src/game/view.ts` barrel rather than a hand-written list, so a slot value can never exist in the grammar without appearing on the card. Every printed example is verified by running it back through `parseOrder`, which makes the documentation itself a test.
 
 **Acceptance criteria:**
-- [ ] `src/components/HowToPlay.tsx` renders the canonical order of §7.2 as `Base → Milk → Sugar → Strength → Temperature → Vessel`.
+- [ ] `src/app/HowToPlay.tsx` renders the canonical order of §7.2 as `Base → Milk → Sugar → Strength → Temperature → Vessel`.
 - [ ] The card renders one row per entry of `SLOT_VALUE_LABELS`, asserted by counting rendered rows against the barrel's own entry count — 16 values across six slots — so adding a value forces a card row.
 - [ ] All nine non-default modifiers (`C`, `O`, `siew dai`, `ga dai`, `kosong`, `gao`, `po`, `peng`, `da bao`) carry a meaning drawn from §7.1 and one example order, each example exposed on a `data-example` attribute.
 - [ ] Every example is verified: for each `data-example` scraped from the rendered DOM, `parseOrder(text)` is non-null, `isValidDrink(parseOrder(text))` is true, and `formatOrder(parseOrder(text)) === text`.
@@ -1672,8 +1761,15 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 
 **Track:** Track B (presentation)
 **Estimate:** 4.5h augmented
-**Dependencies:** Sprint 24, Sprint 25, Sprint 30
+**Dependencies:** Sprint 24, Sprint 25, Sprint 30, Sprint 31
 **Touches:** `src/app/GameScreen.tsx`, `src/app/GameScreen.module.css`, `tests/e2e/game-screen.spec.ts`
+
+**Why it depends on Sprint 31 (PF-9).** S33-1's no-horizontal-scroll criterion loops
+"every fixture in the gallery catalogue" from `tests/e2e/game-screen.spec.ts`. That route
+exists only under Sprint 31, and only in a `VITE_E2E=1` build, which S13-2 provides —
+Sprint 31 carries the Sprint 13 edge, so this one line supplies both. Sprint 31 is shallow
+(Sprints 5, 6, 9, 13) and this sprint sits behind Sprints 24/25/30, so the edge costs no
+wall-clock.
 
 ### S33-1 — Portrait composition
 
@@ -1682,14 +1778,14 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Technical context:** "Lower two-thirds" (§9.7) is testable as a bounding-box assertion at a fixed viewport, which is why the composition is a story rather than a styling pass. Score and combo must render `--teak` on a `--kaya-yellow` plate — the inverse pair measures 1.61:1 and is banned outright by §9.2.
 
 **Acceptance criteria:**
-- [ ] `src/components/GameScreen.tsx` and `GameScreen.module.css` exist, taking state as
+- [ ] `src/app/GameScreen.tsx` and `GameScreen.module.css` exist, taking state as
       props and reading `dispatch` from `useEngine()` in `src/app/EngineContext.tsx` —
       the only module naming an engine implementation (§10.5).
 - [ ] DOM order top→bottom matches the §9.5 wireframe: header, queue, drink preview, slot
       selectors, SERVE. Asserted by comparing `compareDocumentPosition` across five testids.
 - [ ] Header renders hearts, logo, combo and score. Combo displays `comboTenths / 10` to one
       decimal, computed from the integer (§8.8): `x1.0` at `comboTenths === 10` and `x3.0` at
-      `comboTenths === 30`. `grep -n "0\.1" src/components/GameScreen.tsx` exits non-zero.
+      `comboTenths === 30`. `grep -n "0\.1" src/app/GameScreen.tsx` exits non-zero.
 - [ ] Score and combo compute to `--teak` on a `--kaya-yellow` plate (7.12:1, §9.2). A test
       resolves the computed foreground/background pair and asserts it appears in §9.2's
       approved matrix.
@@ -1772,7 +1868,7 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Technical context:** M0's contrast test checks the token pairs in isolation; this one checks what actually rendered, which is where a wrong pairing survives. Walk the rendered tree, resolve each text node's computed foreground and background back to token values, and fail on any pair absent from §9.2's table — `--kaya-yellow` text on `--condensed-cream` at 1.61:1 is the specific failure this catches.
 
 **Acceptance criteria:**
-- [ ] `src/components/GameScreen.fixtures.test.tsx` iterates every named export of
+- [ ] `tests/presentation/GameScreen.fixtures.test.tsx` iterates every named export of
       `src/dev/fixtures.ts`, mounts `GameScreen`, and asserts zero throws, zero
       `console.error` and zero `console.warn` for each — at least the 13 §10.5 snapshots.
 - [ ] R5 lockout affordance (§9.7), asserted on the mid-lockout fixture: SERVE has
@@ -2215,7 +2311,7 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 - [ ] A full 34-glyph run produces exactly 34 glyphs in groups of 6/8/10/10 — assert both the total and each group length against `shiftResults` inner lengths.
 - [ ] R16 truncation asserted: a run that ended at zero hearts during tea produces fewer than 34 glyphs, group lengths equal to the surviving `shiftResults` inner arrays, no empty group rendered and no trailing or doubled `' · '` separator.
 - [ ] Spoiler-free asserted mechanically: the grid body's character set is a subset of `{🟩, 🟨, 🟥, ' ', '·'}`, and a test scans the full text for every one of the 240 formatted order strings and every modifier token (`kopi`, `teh`, `C`, `O`, `siew dai`, `ga dai`, `kosong`, `gao`, `po`, `peng`, `da bao`) case-insensitively, asserting zero matches.
-- [ ] `src/components/ShareButton.tsx` renders on the game-over screen for `mode === 'daily'` only, meets the 44×44px target at a 360px viewport, and labels itself with `#FFFFFF` on `--kopitiam-green`.
+- [ ] `src/components/share/ShareButton.tsx` renders on the game-over screen for `mode === 'daily'` only, meets the 44×44px target at a 360px viewport, and labels itself with `#FFFFFF` on `--kopitiam-green`.
 - [ ] A test asserts `navigator.clipboard.writeText` is invoked synchronously within the click handler — no `await` executes before the call — and is called with exactly `formatShareText(...)`'s output.
 - [ ] `tests/e2e/share.spec.ts` grants clipboard permissions, finishes a pinned Daily via the test seam, clicks Share, reads the clipboard back and asserts it equals the expected text character for character.
 - [ ] The same spec re-runs with `navigator.clipboard` deleted via `addInitScript`, and with `writeText` stubbed to reject: in both cases a visible readonly text region appears containing the exact share text, is pre-selected, carries a visible instruction and an `aria-live` announcement, and the state is not carried by colour alone.
@@ -2237,7 +2333,7 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 *As Ah Seng, I want to see my games played, high score, best combo, streak and accuracy so that I know what I am beating.*
 
 **Acceptance criteria:**
-- [ ] `src/components/StatsScreen.tsx` renders five labelled readouts, each with a stable test id: games played, high score, best combo, daily streak, accuracy.
+- [ ] `src/app/StatsScreen.tsx` renders five labelled readouts, each with a stable test id: games played, high score, best combo, daily streak, accuracy.
 - [ ] Every value comes from `src/storage`'s `load()`; a source test asserts the component imports nothing from `src/game/engine`.
 - [ ] Best combo renders as `bestComboTenths / 10` to one decimal with an `x` suffix — `23 → "2.3x"` — computed from the integer per §8.8, never from a float accumulation.
 - [ ] Accuracy renders as a whole-number percentage from R25's `servesCorrect / servesAttempted`; with `servesAttempted === 0` it renders `—` and the rendered text is asserted never to contain `NaN` or `Infinity` in any case.
@@ -2370,15 +2466,18 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 **Goal:** Give the orphaned improvements from the Sprint 5 and Sprint 2 reviews an owner — no sprint after 5 declares `tests/styles/**`, and no sprint after 2 declares `scripts/lint.mjs` or `tests/scaffold/lint-config.test.ts`, so without this sprint none of them has a legal home.
 
 **Track:** Cleanup (out of tier — cuttable, and cutting it costs no shipped behaviour)
-**Estimate:** 2h augmented
-**Dependencies:** Sprint 2, Sprint 5, Sprint 10
-**Touches:** `tests/styles/**`, `tests/support/css.ts`, `scripts/lint.mjs`, `tests/scaffold/lint-config.test.ts`
+**Estimate:** 2.5h augmented
+**Dependencies:** Sprint 2, Sprint 5, Sprint 6, Sprint 10
+**Touches:** `tests/styles/**`, `tests/support/css.ts`, `scripts/lint.mjs`, `tests/scaffold/lint-config.test.ts`, `tsconfig.json`
 
 **Why it depends on Sprint 10:** Sprint 10 declares the glob `tests/support/**`, which overlaps `tests/support/css.ts`. The edge serialises the two rather than letting the scheduler run them concurrently into a collision; Sprint 10 is early in Track A, so the edge costs no wall-clock.
 
+**Why it depends on Sprint 6:** S54-4 adds `playwright.config.ts` to `tsconfig.json`'s
+`include`, which requires that file to exist. Sprint 6 is merged, so the edge is free.
+
 **Why it depends on Sprint 2:** S54-3 edits the two files Sprint 2 shipped. Sprint 7 also opens `eslint.config.js`, but S54-3 does not — the three findings live entirely in `scripts/lint.mjs` and `tests/scaffold/lint-config.test.ts`, which Sprint 7 does not declare, so no edge to Sprint 7 is needed.
 
-**The three stories are independent and may be done in any order.** S54-1 and S54-2 touch the CSS test surface; S54-3 touches the lint gate stage. Cutting any one of the three costs nothing the others need.
+**The four stories are independent and may be done in any order.** S54-1 and S54-2 touch the CSS test surface; S54-3 touches the lint gate stage; S54-4 touches `tsconfig.json` and nothing else. Cutting any one of the four costs nothing the others need.
 
 ### S54-1 — Close the two false negatives in the §9.2 colour sweep
 
@@ -2419,6 +2518,35 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 - [ ] The probes' invariants from Sprint 2 still hold with the new names: `prettier --check .` stays green while they exist, `npm run build` output is unchanged, `git status` is clean after the run, and `eslint . -f json` reports zero probe paths.
 - [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
 
+### S54-4 — Give `tsconfig.json` an owner and put the root configs inside it
+
+*As the implementing agent, I want every hand-written TypeScript file at the repo root to be inside `tsconfig.json`'s `include`, so that `npm run typecheck` cannot go quiet about one of them.*
+
+**Context:** The Sprint 6 review found that `playwright.config.ts` is absent from
+`tsconfig.json`'s `include` (`["src", "tests", "vite.config.ts", "vitest.config.ts"]`).
+It is typechecked today only *transitively*, through
+`tests/e2e/playwright-config.test.ts`'s import of it — the reviewer confirmed
+`tsc --noEmit` does cover it right now — but if that import is ever dropped the config
+leaves `typecheck` with no signal. The deeper finding is **PF-12**: `tsconfig.json` is
+named in exactly one place in this plan, S1-1's `"strict": true` criterion, and **no
+sprint after Sprint 1 declares it in `Touches:` at all**. Sprint 6 correctly declined to
+widen its own scope to fix this, and every sprint after it would have had to do the same.
+This story is the owner.
+
+**Acceptance criteria:**
+- [ ] `tsconfig.json`'s `include` names `playwright.config.ts`, and `npm run typecheck`
+      still exits 0.
+- [ ] The coverage is asserted rather than assumed: a test enumerates every
+      `*.config.ts` / `*.config.mts` at the repo root and asserts each is matched by
+      `include`, so a future root config added outside it reds the gate. Verified by
+      mutation — removing `playwright.config.ts` from `include` must red that test.
+- [ ] Deleting the `import playwrightConfig from '../../playwright.config'` line in
+      `tests/e2e/playwright-config.test.ts` no longer removes the file from
+      `tsc --noEmit`'s program — confirmed by mutation, then reverted.
+- [ ] `"strict": true` (S1-1, §10.1) is unchanged, and no `compilerOptions` value other
+      than `include` is edited by this story.
+- [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
+
 ---
 
 ## Non-blocking Review Backlog
@@ -2441,6 +2569,64 @@ inside a pull request. Append here; do not fix in place mid-sprint.
 | Sprint 2 (PR #1, cycle 2, follow-up 1) | **NB-1** — not a plan finding: an orphaned code improvement. `resolveEslintBin()` in `scripts/lint.mjs` dropped the `existsSync(bin)` check while fixing the cycle-1 non-blocker, so a partial install where `eslint/package.json` resolves but its declared bin is absent surfaces a raw `MODULE_NOT_FOUND` stack trace instead of the docblock's promised one-line ``Run `npm ci`.``. Fails closed (exit 1, no false green), but contradicts the docblock on a reachable path, and the test's own `resolveEslintBin()` still asserts `existsSync` — the asymmetry sits in the diff. No sprint after 2 declares `scripts/lint.mjs`. | Sprint 54 | **CLOSED** — drained at this sync into **S54-3**. Same shape as PF-7: no owner after the sprint that raised it, which is what makes the cleanup sprint the fix rather than a deferral. |
 | Sprint 2 (PR #1, cycle 2, follow-up 2) | **NB-2** — not a plan finding. `tests/scaffold/lint-config.test.ts` asserts the banner with `toContain('lint: eslint . --max-warnings 0')`, which reds if the argument array is reordered to `['--max-warnings', '0', '.']` — behaviourally identical. Brittle, not wrong; the tripwire and `--max-warnings 5` tests carry the real proof. No sprint after 2 declares `tests/scaffold/lint-config.test.ts`. | Sprint 54 | **CLOSED** — drained at this sync into **S54-3**. |
 | Sprint 2 (PR #1, cycle 2, follow-up 3) | **NB-3** — not a plan finding. The three in-repo lint probe files written by `tests/scaffold/lint-config.test.ts` use fixed paths under `src/`, so two vitest processes in one worktree — a watch session alongside a gate run — would have each other's `removeProbes()` delete files mid-lint. Not reachable in the gate (`vitest run`, one process, suites sequential within the file). | Sprint 54 | **CLOSED** — drained at this sync into **S54-3**. |
+
+| Sprint 6 (PR #3, cycle 1) | **PF-9** — after Sprint 6, `playwright.config.ts` and `scripts/e2e.mjs` appear in **no `Touches:` line at all**, yet four later sprints need the Playwright `webServer`'s build to carry `VITE_E2E=1`: Sprint 13 (`advance(20000)` from `tests/e2e/seam.spec.ts`), Sprint 31 (`tests/e2e/gallery.spec.ts` against a route mounted behind `import.meta.env.VITE_E2E`), Sprint 33 (its no-horizontal-scroll criterion loops the gallery catalogue, so it needs Sprint 31's route) and Sprint 45 (§10.7's smoke test). None owned the file the fix lives in, and the scheduler would not have serialised them against each other. Sprint 6's implementer and reviewer both declined to plumb `VITE_E2E` inside PR #3 on purpose — a build that carries it unconditionally is no longer the production build §10.7 wants asserted clean. | Sprints 13, 31, 33, 45 | **CLOSED** — drained at this sync, as **ownership and ordering only**; no `VITE_E2E` work was moved into Sprint 6 or any earlier sprint. **Sprint 13 is the owner**: it is the first sprint that cannot avoid the flag, its title already names the seam, and its `Touches:` now adds `playwright.config.ts`, `scripts/e2e.mjs` and `tests/e2e/playwright-config.test.ts` (the last because Sprint 6's own single-`webServer` assertions necessarily move when a second pass appears, and S13-2 must be able to edit the test that guards them). New story **S13-2** lands the two-pass runner. Ordering: **Sprint 31 → Sprint 13** and **Sprint 33 → Sprint 31** are the only two edges added; Sprint 45 already inherits Sprint 13 through Sprint 40 → Sprint 36 → Sprint 13, so it needed nothing. Sprint 31 declares neither runner file, so both new edges are ordering, not scope. |
+| Sprint 6 (PR #3, cycle 1) | **PF-10** — one sprint needs a `VITE_E2E=1` seam build **and** a plain production build (`grep -rl "FixtureGallery" dist/assets` exits non-zero) asserted inside a single `npm run e2e`, which one fixed `webServer` cannot express. The reviewer wrote "Sprint 33" but quoted `Touches: src/dev/gallery/**` — that is **Sprint 31**'s line, and both criteria are Sprint 31's. Sprint 33 was checked too and has no `VITE_E2E` criterion of its own; it needs the seam only transitively, through the gallery catalogue its e2e loops. | Sprint 31 (not 33) | **CLOSED** — drained at this sync, and the reviewer's own suggestion taken: `scripts/e2e.mjs` as Sprint 6 shipped it already drives multiple passes with per-pass environments, so this is a **second pass, not a second `webServer`**. S13-2 establishes a seam pass and a production pass with a criterion that every committed `*.spec.ts` is matched by exactly one of them. Sprint 31's strip assertion moves out of the pass table entirely: it is now explicitly a **Vitest** test in `src/dev/gallery/FixtureGallery.test.tsx` that spawns its own build, which keeps it inside Sprint 31's `Touches:`. Its gallery spec is pinned to the seam pass. |
+| Sprint 6 (PR #3, cycle 1) | **PF-11** — a sprint's `Touches:` omits `tests/e2e/**` though its criteria add a spec file. | Sprints 31, 33 | **CLOSED — already resolved, no edit needed.** Verified against the current file at this sync: PF-5's drain (Sprint 5 sync) gave Sprint 31 `tests/e2e/gallery.spec.ts` and Sprint 33 `tests/e2e/game-screen.spec.ts`, both per-file. Both were re-checked because the reviewer's sprint number and quoted `Touches:` line disagreed. This row is kept rather than deleted so the next reader does not re-raise it. |
+| Sprint 6 (PR #3, cycle 1, nice-to-have) | **PF-12** — `tsconfig.json` is unowned. It is named in exactly one place in this plan — S1-1's `"strict": true` criterion — and **no sprint after Sprint 1 declares it in `Touches:`**. The live symptom the reviewer found: `playwright.config.ts` is absent from `include` (`["src", "tests", "vite.config.ts", "vitest.config.ts"]`) and is typechecked only *transitively*, via `tests/e2e/playwright-config.test.ts`'s import. True today and confirmed under `tsc --noEmit`, but if that import is ever dropped the config leaves `typecheck` silently. Sprint 6 correctly declined to widen its own scope, and every sprint after it would have had to decline for the same reason. | Sprint 54 | **CLOSED** — drained at this sync into a new **S54-4**. Sprint 54 gains `tsconfig.json` in `Touches:` and a `Sprint 6` dependency (free — Sprint 6 is merged). The story does more than add one path: it asserts by test that every root-level `*.config.ts` is matched by `include`, verified by mutation, so the next root config cannot repeat this. Same shape as PF-7 and NB-1 — no owner after the sprint that raised it is what makes the cleanup sprint the fix rather than a deferral. |
+| Sprint 6 sync (2026-08-29), found while verifying PF-11 | **PF-13** — systemic, and the same class as PF-5. **Eight** sprints name component or test files in their acceptance criteria that fall **outside their own `Touches:` line**: 23 (`src/components/SlotSelectors.tsx` vs `src/components/slots/**`), 29 (`QueueCard`/`QueueList`), 30 (`PatienceRing`/`MoodFace`, both vs `src/components/queue/**`), 32 (`src/components/HowToPlay.tsx` vs `src/app/HowToPlay.tsx`), 33 (`src/components/GameScreen.tsx` vs `src/app/GameScreen.tsx`), 35 (`src/components/GameScreen.fixtures.test.tsx` vs `tests/presentation/**`), 49 (`ShareButton` vs `src/components/share/**`) and 50 (`src/components/StatsScreen.tsx` vs `src/app/StatsScreen.tsx`). Each would have created a file the scheduler did not know it owned — the exact merge-collision `Touches:` exists to prevent — and §10.2's per-cluster split, which is what keeps the presentation track from re-serialising against itself, is defeated by a flat `src/components/X.tsx`. | Sprints 23, 29, 30, 32, 33, 35, 49, 50 | **CLOSED** — drained at this sync by the precedent the Sprint 5 sync set on S12-1: **the `Touches:` line wins**, and the criteria were corrected to match it. Ten path strings changed, no `Touches:` line widened, no dependency added, no behaviour altered — every one is a directory prefix correction. Fan-out shape is unchanged. |
+| Sprint 6 (PR #3) — operational, not a plan defect | **OPS-1** — `npm run e2e` binds the **fixed port 4317** with `--strictPort` and `reuseExistingServer: !process.env.CI`, both mandated by S6-1's acceptance criteria and both correct in isolation. Across worktrees they interact badly: two runners entering the gate at once either collide on the port or — silently, and worse — the second **reuses the first worktree's preview server** and asserts against a `dist/` built from different source under a possibly different base path. **Concurrent sprints that both run e2e are unsafe even when their `Touches:` paths are pairwise disjoint**, and this is not expressible as a dependency edge, because every sprint's gate ends in `npm run e2e`. | Every concurrent sprint | **CLOSED** — recorded at this sync in ***Dependencies are executable, and so is Touches* → *Concurrent `npm run e2e` is unsafe***, where the scheduler-facing contract lives, as three rules: never run two e2e stages at once on this machine; set `CI=1` from a worktree so the silent cross-serve becomes a loud port-bind failure; and treat a red e2e naming port 4317 or `EADDRINUSE` as a collision until proven otherwise. S13-2 additionally gains a criterion making `scripts/e2e.mjs` set `CI=1` for the passes it spawns, which closes the silent case in code while leaving S6-1's `!process.env.CI` literal intact. |
+
+**Drainage log — Sprint 6 sync (2026-08-29).** Sprint 6 merged as PR #3
+(`18c0f30`) with **zero blockers and zero non-blockers at cycle 2, and all six
+S6-1 acceptance criteria met** — the base-path assertion was re-verified by the
+reviewer's own negative control rather than by reading the response. No blocking
+work was carried over, so **no followup sub-sprint 6.1 was created**, and no
+cleanup sprint was created either: Sprint 54 already exists, is NOT STARTED, and
+absorbed the one orphaned item.
+
+Five plan findings and one operational constraint were drained. The load-bearing
+one is **PF-9**, and the important thing about its fix is what it does *not* do.
+Both the implementer and the reviewer of Sprint 6 concluded that `VITE_E2E`
+should not be plumbed now, and they were right: a `webServer` build that carries
+the flag unconditionally is no longer the production build §10.7 wants asserted
+clean. So nothing was added to Sprint 6 or to any earlier sprint. What was added
+is **ownership and ordering** — Sprint 13 now declares the two runner files that
+had no owner after Sprint 6, S13-2 lands the two-pass shape there, and two edges
+(31 → 13, 33 → 31) order the consumers behind it. Sprint 45 needed nothing; it
+already inherits Sprint 13 through 40 → 36 → 13.
+
+**PF-10 corrects the reviewer's sprint number.** The review wrote "Sprint 33" but
+quoted `Touches: src/dev/gallery/**`, which is Sprint 31's line — both the
+`VITE_E2E=1` build and the production-strip grep are Sprint 31's criteria.
+Sprint 33 was checked too, and needs the seam only transitively, through the
+gallery catalogue its e2e loops. That check turned up a real missing edge:
+Sprint 33 loops "every fixture in the gallery catalogue" and Sprint 31 was **not**
+in its transitive closure. That edge is now declared.
+
+**PF-11 was already resolved** by PF-5's drain at the Sprint 5 sync — both
+Sprint 31 and Sprint 33 already declare their spec file per-file. The row is kept
+rather than deleted so the next reader does not re-raise it.
+
+**PF-13 is the one nobody asked for.** Re-checking PF-11 across both sprints
+surfaced the same defect in a different dimension: eight sprints name component
+or test files in their criteria that fall outside their own `Touches:`. It is
+PF-5's shape again — a systemic path mismatch that defeats §10.2's per-cluster
+split and would have had eight sprints creating files the scheduler did not know
+they owned. Fixed by the precedent S12-1 set: the `Touches:` line wins. Ten path
+strings, no `Touches:` widened, no edge added.
+
+**OPS-1 is not a plan defect and has no code fix that `Touches:` can express.**
+Every sprint's gate ends in `npm run e2e`, so serialising on the port would
+serialise the entire plan. It is recorded as a rule in the scheduler-facing
+conventions section instead, plus one S13-2 criterion that makes
+`scripts/e2e.mjs` set `CI=1` for its own passes — which converts the dangerous
+case (a second worktree silently reusing the first's preview server and asserting
+against the wrong `dist/`) into the safe one (a loud port-bind failure), without
+touching S6-1's `reuseExistingServer: !process.env.CI` literal.
+
+**Sprint 3 is deliberately untouched** — approved but not yet merged, and it stays
+`[IN PROGRESS]`. No sprint other than Sprint 6 changed status at this sync.
 
 **Drainage log — Sprint 2 sync (2026-08-29).** Sprint 2 merged as PR #1
 (`25d26e0`) after two review cycles. Cycle 1 raised **one blocker** — a reachable
