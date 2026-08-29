@@ -212,6 +212,33 @@ export function stripCommentsAndStrings(source: string): string {
 }
 
 /**
+ * The globals §10.5 keeps out of the game core. The DOM is reached through
+ * these rather than through imports, so the import boundary alone does not
+ * hold it out.
+ */
+export const DOM_GLOBALS = ['document', 'window', 'navigator', 'localStorage'];
+
+/**
+ * Which of `DOM_GLOBALS` the given source reaches for *in code*.
+ *
+ * The single place the denylist's lens is chosen, and the reason this lives
+ * here rather than twice over in `view.test.ts` and `engine.test.ts`: both of
+ * those files run their check *and* its positive control through this one
+ * function, so narrowing the lens back to `stripComments` — leaving string
+ * literals in place — reds those controls instead of passing silently.
+ *
+ * Comments and string literals are both stripped because neither is an access:
+ * prose about the rule is not the DOM, and neither is a thrown message that
+ * names it. `view.ts` and `engine.ts` are files Sprint 15 and Sprint 21 rewrite
+ * without owning the tests that read them, so a check that reds on the word is
+ * a landmine those sprints could not defuse.
+ */
+export function domGlobalsIn(source: string): string[] {
+  const code = stripCommentsAndStrings(source);
+  return DOM_GLOBALS.filter((global) => new RegExp(`\\b${global}\\b`).test(code));
+}
+
+/**
  * Every module specifier the given source imports or re-exports from, in source
  * order, read from code only.
  *

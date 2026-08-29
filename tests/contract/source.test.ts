@@ -141,9 +141,15 @@ describe('the scanner still does what it did before regexes were in it', () => {
   });
 
   it('keeps string bodies for `stripComments` and empties them otherwise', () => {
-    const source = "const message = 'counts as Drink';\n";
-    expect(stripComments(source)).toBe(source);
-    expect(stripCommentsAndStrings(source)).toBe("const message = '';\n");
+    // All three quote forms, because this is the only probe of the difference
+    // between the two modes — and that difference is what `view.test.ts` and
+    // `engine.test.ts` rest their DOM denylists on. A `"` or a backtick that
+    // kept its body would put `document` back into the code they read.
+    for (const quote of ["'", '"', '`']) {
+      const source = `const message = ${quote}counts as Drink${quote};\n`;
+      expect(stripComments(source), quote).toBe(source);
+      expect(stripCommentsAndStrings(source), quote).toBe(`const message = ${quote}${quote};\n`);
+    }
   });
 
   it('does not let an escaped quote end a literal', () => {

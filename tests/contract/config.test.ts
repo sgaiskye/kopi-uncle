@@ -397,22 +397,38 @@ describe('§10.4 single-source rule', () => {
     return out;
   }
 
-  const files = SCOPE_ROOTS.flatMap((root) => textFilesUnder(root)).filter(inScope);
+  let collected: string[] | undefined;
 
-  it('scans a non-trivial file set, so it cannot pass by finding nothing', () => {
-    expect(files.length).toBeGreaterThan(10);
-    expect(files).not.toContain(join('src', 'game', 'config.ts'));
-    expect(files).toContain(join('src', 'game', 'view.ts'));
-    expect(files).toContain(relative(ROOT, fileURLToPath(import.meta.url)));
+  /**
+   * The in-scope files, walked once and memoised — but walked lazily, from
+   * inside a test rather than from this describe's body. Laziness is what keeps
+   * the scope-root assertion below reachable: `readdirSync` throws for a root
+   * that names no directory, and a throw during collection would empty this
+   * file of tests before any of them could say which root was wrong.
+   */
+  function scopedFiles(): string[] {
+    collected ??= SCOPE_ROOTS.flatMap((root) => textFilesUnder(root)).filter(inScope);
+    return collected;
+  }
+
+  // First, so that a mis-spelled root is reported by name here rather than as a
+  // raw `ENOENT` out of the walk the tests below it perform.
+  it('has a real directory behind every scope root, so a rename cannot empty it', () => {
+    // Reachable only because the walk is lazy: a root that stopped existing and
+    // a root spelled for a directory that never existed both throw out of
+    // `readdirSync`, and neither would reach this line if the walk ran during
+    // collection.
+    for (const root of SCOPE_ROOTS) {
+      const path = join(ROOT, root);
+      expect(existsSync(path) && statSync(path).isDirectory(), root).toBe(true);
+    }
   });
 
-  it('has a real directory behind every scope root, so a rename cannot empty it', () => {
-    // A root that stopped existing would throw in the walk rather than silently
-    // contribute nothing — but a root spelled for a directory that never existed
-    // would not, so it is named here too.
-    for (const root of SCOPE_ROOTS) {
-      expect(statSync(join(ROOT, root)).isDirectory(), root).toBe(true);
-    }
+  it('scans a non-trivial file set, so it cannot pass by finding nothing', () => {
+    expect(scopedFiles().length).toBeGreaterThan(10);
+    expect(scopedFiles()).not.toContain(join('src', 'game', 'config.ts'));
+    expect(scopedFiles()).toContain(join('src', 'game', 'view.ts'));
+    expect(scopedFiles()).toContain(relative(ROOT, fileURLToPath(import.meta.url)));
   });
 
   it('keeps src/dev/fixtures.ts in scope, which S9-1 names this test as the guard for', () => {
@@ -421,7 +437,7 @@ describe('§10.4 single-source rule', () => {
     // S9-1 has not landed, so the file itself may not be there yet. Once it is,
     // being in scope is no longer enough — it has to be collected.
     if (existsSync(join(ROOT, fixtures))) {
-      expect(files).toContain(fixtures);
+      expect(scopedFiles()).toContain(fixtures);
     }
   });
 
@@ -445,14 +461,12 @@ describe('§10.4 single-source rule', () => {
     ]) {
       expect(inScope(outside), outside).toBe(false);
     }
-    // And nothing outside the roots got in by another door.
-    expect(files.filter((file) => !inScope(file))).toEqual([]);
   });
 
   it('finds no §8.5 millisecond value outside src/game/config.ts', () => {
     const offences: string[] = [];
 
-    for (const file of files) {
+    for (const file of scopedFiles()) {
       const source = readFileSync(join(ROOT, file), 'utf8');
       for (const value of BANNED_MS) {
         if (msPattern(value).test(source)) {
@@ -465,7 +479,7 @@ describe('§10.4 single-source rule', () => {
   });
 
   it('finds the wrong-serve penalty fraction nowhere outside src/game/config.ts', () => {
-    const offences = files.filter((file) =>
+    const offences = scopedFiles().filter((file) =>
       fractionPattern().test(readFileSync(join(ROOT, file), 'utf8')),
     );
     expect(offences).toEqual([]);
