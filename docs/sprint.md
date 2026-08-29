@@ -396,7 +396,7 @@ the file named beside it.
 
 ---
 
-## Sprint 3.1 — Contract-suite scope repair [NOT STARTED]
+## Sprint 3.1 — Contract-suite scope repair [IN PROGRESS]
 
 **Goal:** Narrow the two Sprint 3 static checks whose blast radius is wider than
 the rule they enforce, so that sprints which have no legal way to edit
@@ -599,7 +599,7 @@ test that would red on them.
 
 ---
 
-## Sprint 7 — Boundary and purity lint [NOT STARTED]
+## Sprint 7 — Boundary and purity lint [IN PROGRESS]
 
 **Goal:** Make §10.5's seam and §3's no-wall-clock rule mechanically unbreakable before either track writes logic against them.
 
@@ -676,7 +676,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 ---
 
-## Sprint 9 — The stub engine and the fixture catalogue [NOT STARTED]
+## Sprint 9 — The stub engine and the fixture catalogue [IN PROGRESS]
 
 **Goal:** Ship the scripted replay and the named state catalogue the presentation track develops against, so that queue cards, moods, break cards and game-over screens are all reachable without an engine.
 
@@ -703,7 +703,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 ---
 
-## Sprint 10 — The fold harness [NOT STARTED]
+## Sprint 10 — The fold harness [IN PROGRESS]
 
 **Goal:** Give the logic track the primitive every later sprint folds against — a deterministic step harness — so the engine can be tested as a fold over time rather than by waiting on a clock.
 
