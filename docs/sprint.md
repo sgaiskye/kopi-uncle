@@ -157,7 +157,7 @@ unattended run, and it buys nothing the local server does not already give you.
 | **3 — Playable** | 36–46 | Someone can run it locally and play the game |
 | **4 — Ship** | 47–52 | Daily, share, stats, screens, accessibility |
 | **5 — Publish** | 53 | The Pages deploy and the live URL. Cuttable — losing it costs a URL, not the demo |
-| **— Cleanup** | 54 | Out of tier. Closes two Sprint 5 review findings that no other sprint declares the files to fix. Cuttable — cutting it costs no shipped behaviour, only test durability |
+| **— Cleanup** | 54 | Out of tier. Closes two Sprint 5 and three Sprint 2 review findings that no other sprint declares the files to fix. Cuttable — cutting it costs no shipped behaviour, only test durability |
 
 Realistically the cut line falls inside Tier 2. Tier 0 is the commitment;
 everything after it is upside.
@@ -252,7 +252,7 @@ committed golden fixtures.
 
 ---
 
-## Sprint 2 — ESLint 9, type-aware [IN PROGRESS]
+## Sprint 2 — ESLint 9, type-aware [DONE]
 
 **Goal:** Put a real, type-aware linter behind `npm run lint`, so that Sprint 7's boundary and purity rules have the analysis they need.
 
@@ -270,11 +270,11 @@ committed golden fixtures.
 **Technical context:** Prettier is wired as a formatter and `eslint-config-prettier` disables conflicting stylistic rules; `eslint-plugin-prettier` is deliberately not installed, because routing formatting through lint makes every reformat a gate failure with a stack trace attached.
 
 **Acceptance criteria:**
-- [ ] `eslint.config.js` exists at the repo root, exports a flat-config array, and ESLint `^9` is the installed major — asserted from `package-lock.json`.
-- [ ] typescript-eslint is configured type-aware: `npx eslint --print-config src/game/types.ts` shows a `projectService` or `project` parser option set, and shows `@typescript-eslint/no-floating-promises` at `error` — a rule that cannot exist without type information.
-- [ ] `eslint-plugin-react-hooks` contributes `react-hooks/rules-of-hooks` and `react-hooks/exhaustive-deps` at `error` for `src/components/**` and `src/app/**` — asserted via `--print-config`.
-- [ ] `eslint-config-prettier` is the last entry of the flat-config array; `npm ls eslint-plugin-prettier` exits non-zero, proving the plugin is absent.
-- [ ] `npm run lint` runs `eslint .` with `--max-warnings 0` and exits 0; `npm run format:check` runs `prettier --check .` and exits 0.
+- [x] `eslint.config.js` exists at the repo root, exports a flat-config array, and ESLint `^9` is the installed major — asserted from `package-lock.json`.
+- [x] typescript-eslint is configured type-aware: `npx eslint --print-config src/game/types.ts` shows a `projectService` or `project` parser option set, and shows `@typescript-eslint/no-floating-promises` at `error` — a rule that cannot exist without type information.
+- [x] `eslint-plugin-react-hooks` contributes `react-hooks/rules-of-hooks` and `react-hooks/exhaustive-deps` at `error` for `src/components/**` and `src/app/**` — asserted via `--print-config`.
+- [x] `eslint-config-prettier` is the last entry of the flat-config array; `npm ls eslint-plugin-prettier` exits non-zero, proving the plugin is absent.
+- [x] `npm run lint` runs `eslint .` with `--max-warnings 0` and exits 0; `npm run format:check` runs `prettier --check .` and exits 0.
 
 ---
 
@@ -2365,16 +2365,20 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 
 ---
 
-## Sprint 54 — Non-blocking cleanup: the CSS test surface [NOT STARTED]
+## Sprint 54 — Non-blocking cleanup: the CSS and lint-gate test surfaces [NOT STARTED]
 
-**Goal:** Give the two orphaned improvements from the Sprint 5 review an owner — no sprint after 5 declares `tests/styles/**`, so without this sprint neither has a legal home.
+**Goal:** Give the orphaned improvements from the Sprint 5 and Sprint 2 reviews an owner — no sprint after 5 declares `tests/styles/**`, and no sprint after 2 declares `scripts/lint.mjs` or `tests/scaffold/lint-config.test.ts`, so without this sprint none of them has a legal home.
 
 **Track:** Cleanup (out of tier — cuttable, and cutting it costs no shipped behaviour)
-**Estimate:** 1.5h augmented
-**Dependencies:** Sprint 5, Sprint 10
-**Touches:** `tests/styles/**`, `tests/support/css.ts`
+**Estimate:** 2h augmented
+**Dependencies:** Sprint 2, Sprint 5, Sprint 10
+**Touches:** `tests/styles/**`, `tests/support/css.ts`, `scripts/lint.mjs`, `tests/scaffold/lint-config.test.ts`
 
 **Why it depends on Sprint 10:** Sprint 10 declares the glob `tests/support/**`, which overlaps `tests/support/css.ts`. The edge serialises the two rather than letting the scheduler run them concurrently into a collision; Sprint 10 is early in Track A, so the edge costs no wall-clock.
+
+**Why it depends on Sprint 2:** S54-3 edits the two files Sprint 2 shipped. Sprint 7 also opens `eslint.config.js`, but S54-3 does not — the three findings live entirely in `scripts/lint.mjs` and `tests/scaffold/lint-config.test.ts`, which Sprint 7 does not declare, so no edge to Sprint 7 is needed.
+
+**The three stories are independent and may be done in any order.** S54-1 and S54-2 touch the CSS test surface; S54-3 touches the lint gate stage. Cutting any one of the three costs nothing the others need.
 
 ### S54-1 — Close the two false negatives in the §9.2 colour sweep
 
@@ -2401,6 +2405,20 @@ This sprint also inherits two Sprint 5 plan findings, both drained at the Sprint
 - [ ] Every assertion Sprint 5 shipped still passes unchanged after the extraction — the mutation checks the review verified (a changed palette hex reds the palette row and its contrast row; a deleted `@import`, or after S12-1's PF-4 move a deleted `src/main.tsx` import, reds the `@font-face` count) must still red.
 - [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
 
+### S54-3 — Close the three residual follow-ups on the lint gate stage
+
+*As the implementing agent, I want `scripts/lint.mjs` to keep the promise its own docblock makes, so that a partial install produces the designed one-line message rather than a stack trace, and the test that guards it is not brittle to a harmless refactor.*
+
+**Context:** Sprint 2's re-review approved PR #1 with three follow-ups explicitly routed here rather than held for another review cycle. None is a correctness defect — every one of them fails closed — but no sprint after 2 declares `scripts/lint.mjs` or `tests/scaffold/lint-config.test.ts`, so without this story all three are silently dropped. (1) **The `npm ci` message is skipped on a partial install.** In fixing the cycle-1 non-blocker, `resolveEslintBin()` dropped the earlier `existsSync(bin)` check. When `node_modules/eslint/package.json` resolves but the bin path it names does not exist on disk, the script spawns a missing file and the failure surfaces as a raw Node `MODULE_NOT_FOUND` stack trace instead of ``lint: the eslint CLI could not be resolved. Run `npm ci`.`` — verified by the reviewer in a temp root whose manifest declared `./bin/eslint.js` with no such file: `status = 1`, and `"npm ci"` absent from stderr. The exit is 1 so no false green is possible, but it contradicts the docblock's own promise on a reachable path, and the asymmetry is visible in the diff: the test's own `resolveEslintBin()` still asserts `existsSync`, the script's no longer does. (2) **The banner assertion is order-sensitive.** `toContain('lint: eslint . --max-warnings 0')` reds if the argument array is ever reordered to `['--max-warnings', '0', '.']`, which is behaviourally identical. Brittle, not wrong — the tripwire and `--max-warnings 5` tests carry the real weight. (3) **The in-repo lint probes use fixed paths.** `tests/scaffold/lint-config.test.ts` writes its three probe files to fixed paths under `src/`; two vitest processes in the same worktree — a watch session alongside a gate run — would have each other's `removeProbes()` delete files mid-lint. Not reachable in the gate (`vitest run`, one process, suites sequential within the file), so this is a note rather than a defect.
+
+**Acceptance criteria:**
+- [ ] `resolveEslintBin()` in `scripts/lint.mjs` returns `null` when the resolved bin path does not exist on disk, so the caller emits the one-line ``Run `npm ci`.`` message. A test builds a temp root whose `node_modules/eslint/package.json` declares a `bin` path with no file behind it, runs the stage, and asserts exit 1, that stderr contains `npm ci`, and that `MODULE_NOT_FOUND` does **not** appear.
+- [ ] The existing resolve-failure and no-`node_modules` cases still exit 1 with the same one-line message — the added check must not change which branch handles them.
+- [ ] The banner assertion no longer depends on argument order: assert the banner contains `eslint` and each of `.`, `--max-warnings` and `0` independently, or parse the banner into a token set. The behavioural tests (the warning tripwire, and `--max-warnings 5` flipping that tree from red to green) are unchanged and still carry the proof that the arguments reach ESLint.
+- [ ] The three in-repo probe paths are made unique per process — include `process.pid` in the generated filenames — and the `beforeAll` sweep matches the generated-name pattern rather than the three fixed paths, so a crashed run's leftovers are still cleaned and two concurrent processes cannot delete each other's probes.
+- [ ] The probes' invariants from Sprint 2 still hold with the new names: `prettier --check .` stays green while they exist, `npm run build` output is unchanged, `git status` is clean after the run, and `eslint . -f json` reports zero probe paths.
+- [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
+
 ---
 
 ## Non-blocking Review Backlog
@@ -2420,6 +2438,45 @@ inside a pull request. Append here; do not fix in place mid-sprint.
 | Sprint 5 (PR #2, cycle 1, nice-to-have 7) | **PF-6** — `opacity` is a hole in the "contrast is a gate failure" story. Sprint 5's matrix parses tokens and cannot see an opacity that dilutes them; `.scaffoldNote` at `0.75` computes to an effective 5.48:1 and is fine, but `0.5` would land near 3:1 with nothing to catch it. Needs a §9.2 ruling, and `sprintkit-sync` may not edit the PRD. | Sprints 35, 51 | **CLOSED** — **ruled** at this sync under standing instruction 1 (never ask; take the green, reversible option and record it), not escalated. **The ruling: §9.2's matrix governs *effective* rendered colour — any `opacity` on a text node or an ancestor composites into the foreground before the ratio is computed.** This adds no colour and removes none; it fixes how the existing table is applied, so it is reversible by deleting two criteria. Enforced where computed styles are actually available: a new S35-1 criterion (the first rendered-contrast enforcement, with a scratch fixture at `opacity: 0.4` that must fail) and a matching S51-2 criterion covering all five screens. A bare `opacity:` source sweep was rejected for the reason the reviewer gave — it cannot tell text from a decorative tile or a keyframe, and would red concurrent sprints that cannot see the rule. |
 | Sprint 5 (PR #2, cycle 2) | **PF-7** — two verified false negatives in `tests/styles/tokens.test.ts`'s `hsl()` handling: `grad` hues are swallowed by the `rad` branch (`/rad$/i.test('47.156grad')` is `true`, making the `grad` branch dead code), and `hslChannels` does not normalise hue into `[0, 360)`, so a negative hue produces the wrong channels. `hsl(47.156grad 100% 91.96%)` and `hsl(-317.56 100% 91.96%)` — both legal spellings of `--condensed-cream` — slip past the sweep. No sprint after 5 declares `tests/styles/**`. | Sprint 54 (new) | **CLOSED** — drained at this sync into **S54-1**. Could not be folded into an existing sprint: `tests/styles/**` had no owner after Sprint 5, which is what makes a cleanup sprint the fix rather than a deferral. |
 | Sprint 5 (PR #2, cycle 1, nice-to-have 10) | **PF-8** — `tokens.test.ts` and `fonts.test.ts` duplicate their CSS-parsing helpers. The one live divergence (the two value readers trimming differently) was fixed inside PR #2; the duplication itself was not, because `tests/support/**` is Sprint 10's scope and was outside Sprint 5's `Touches:`. | Sprint 54 (new) | **CLOSED** — drained at this sync into **S54-2**, which declares `tests/support/css.ts` per-file and depends on Sprint 10 so the glob overlap serialises rather than collides. |
+| Sprint 2 (PR #1, cycle 2, follow-up 1) | **NB-1** — not a plan finding: an orphaned code improvement. `resolveEslintBin()` in `scripts/lint.mjs` dropped the `existsSync(bin)` check while fixing the cycle-1 non-blocker, so a partial install where `eslint/package.json` resolves but its declared bin is absent surfaces a raw `MODULE_NOT_FOUND` stack trace instead of the docblock's promised one-line ``Run `npm ci`.``. Fails closed (exit 1, no false green), but contradicts the docblock on a reachable path, and the test's own `resolveEslintBin()` still asserts `existsSync` — the asymmetry sits in the diff. No sprint after 2 declares `scripts/lint.mjs`. | Sprint 54 | **CLOSED** — drained at this sync into **S54-3**. Same shape as PF-7: no owner after the sprint that raised it, which is what makes the cleanup sprint the fix rather than a deferral. |
+| Sprint 2 (PR #1, cycle 2, follow-up 2) | **NB-2** — not a plan finding. `tests/scaffold/lint-config.test.ts` asserts the banner with `toContain('lint: eslint . --max-warnings 0')`, which reds if the argument array is reordered to `['--max-warnings', '0', '.']` — behaviourally identical. Brittle, not wrong; the tripwire and `--max-warnings 5` tests carry the real proof. No sprint after 2 declares `tests/scaffold/lint-config.test.ts`. | Sprint 54 | **CLOSED** — drained at this sync into **S54-3**. |
+| Sprint 2 (PR #1, cycle 2, follow-up 3) | **NB-3** — not a plan finding. The three in-repo lint probe files written by `tests/scaffold/lint-config.test.ts` use fixed paths under `src/`, so two vitest processes in one worktree — a watch session alongside a gate run — would have each other's `removeProbes()` delete files mid-lint. Not reachable in the gate (`vitest run`, one process, suites sequential within the file). | Sprint 54 | **CLOSED** — drained at this sync into **S54-3**. |
+
+**Drainage log — Sprint 2 sync (2026-08-29).** Sprint 2 merged as PR #1
+(`25d26e0`) after two review cycles. Cycle 1 raised **one blocker** — a reachable
+path on which `npm run lint` exited 0 having linted nothing, because the
+`invokedDirectly` guard compared an unrealpathed `process.argv[1]` against the
+realpathed `import.meta.url`, and `os.tmpdir()` on macOS is exactly such a path.
+It was fixed by **deleting the guard rather than realpathing both sides**, which
+removes the shape of the defect and not merely the instance: every non-ESLint
+return from `main()` is now a literal `1`, and the only 0 that can escape is one
+ESLint itself produced. All five cycle-1 non-blockers were also fixed in the same
+PR. Cycle 2 re-verified every acceptance criterion independently and approved,
+including AC 5, which cycle 1 had marked PARTIAL for exactly this reason. **All
+five S2-1 acceptance criteria are met, so no followup sub-sprint 2.1 was
+created.**
+
+**Zero plan findings were raised.** The one plan-level item from cycle 1 — that
+S7-3 must construct its `ESLint` instance with `ignore: false`, because
+`eslint.config.js` globally ignores `tests/lint/fixtures/**` and
+`ESLint#lintFiles()` skips globally-ignored paths — was already written into
+S7-3's technical context before this sync, and was **re-verified as present and
+accurate here**. Its record correction stands too: cycle 2 confirmed that no
+warning comment about this was ever added to `eslint.config.js`, so S7-3's
+paragraph is the only record and says so. Nothing about it was changed at this
+sync.
+
+The three cycle-2 follow-ups the reviewer explicitly routed to the backlog
+(NB-1, NB-2, NB-3) are **not** plan findings — they are code improvements to
+`scripts/lint.mjs` and `tests/scaffold/lint-config.test.ts`. They are recorded
+above and drained into a new **S54-3** for the same reason PF-7 and PF-8 created
+Sprint 54 in the first place: no sprint after the one that raised them declares
+either file, so leaving them in the backlog would be dropping them. Sprint 54
+gains `**Dependencies:** Sprint 2` and the two paths in `**Touches:**`; its three
+stories are mutually independent and it stays out-of-tier and cuttable.
+
+**Sprint 7 is unblocked by this merge** — it is the only sprint depending on
+Sprint 2, and Sprint 2 was its only dependency.
 
 **Drainage log — Sprint 5 sync (2026-08-29).** Sprint 5 merged as PR #2 with
 **zero blockers across both review cycles and all eight S5-1 acceptance criteria
