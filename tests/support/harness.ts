@@ -17,16 +17,24 @@
  *   the same chunking the app would produce rather than one implausible jumbo
  *   tick. R20's `tickRemainderMs` carry is what makes the chunking invariant:
  *   `advance(s, n)` and a single `tick(s, n)` are the same state.
- * - `runUntil(state, predicate, maxMs)` — the only unbounded construct in the
- *   suite, which is exactly why it carries a budget. A regression that stops
- *   spawning customers must fail a test in milliseconds; without the guard it
- *   would hang CI instead, and a hung job is a far worse signal than a red one.
+ * - `runUntil(state, predicate, maxMs)` — the one construct whose *length* is
+ *   decided by the engine rather than by its caller, which is exactly why it
+ *   carries a budget. A regression that stops spawning customers must fail a
+ *   test in milliseconds; without the guard it would hang CI instead, and a hung
+ *   job is a far worse signal than a red one.
  * - `expectSameState(actual, expected)` — determinism, asserted on a canonical
  *   serialisation rather than by structural equality. `toEqual` treats
  *   `{ a: undefined }` and `{}` as the same object and ignores key order; both
  *   of those are ways a determinism break could hide, so the comparison is done
  *   on a recursive key-sorted string in which an absent field and an explicit
  *   `undefined` are distinguishable.
+ *
+ * Neither loop in this file can be made to spin, and that is a property of the
+ * module rather than of its callers. `runUntil` has its budget; `advance`
+ * rejects a non-finite `totalMs` outright, because an `Infinity` would chunk
+ * forever (`Infinity - MAX_FRAME_MS` is `Infinity`) and a `NaN` would fail
+ * `remaining > 0` and silently advance nothing — the same hang and the same
+ * silence the budget exists to remove.
  *
  * **Imports only `src/game/`.** The harness is the logic track's tool, and the
  * moment it can reach a React component or a hand-written fixture module it
@@ -86,8 +94,24 @@ export function fold(state: GameState, steps: readonly Step[]): GameState {
  * A `totalMs` of zero — or any non-positive value — produces no steps at all and
  * returns the input state, matching §10.3's identity clause for `dtMs === 0`
  * instead of dispatching a tick that would have to be ignored anyway.
+ *
+ * @throws if `totalMs` is not finite. `totalMs` is normally a test author's
+ * expression, but it is the primitive most likely to be handed a *computed*
+ * duration by a later sprint, and the two non-finite results of such a
+ * computation fail in the two worst ways: `Infinity` never decrements
+ * `remaining` and so grows the step list until the process dies, and `NaN`
+ * fails `remaining > 0` and returns the input state as though the call had
+ * succeeded. A thrown error is the only outcome a CI log can act on.
  */
 export function advance(state: GameState, totalMs: number): GameState {
+  if (!Number.isFinite(totalMs)) {
+    throw new Error(
+      `advance: totalMs must be a finite number, received ${String(totalMs)}. ` +
+        'An infinite total would chunk forever and a NaN would silently advance ' +
+        'nothing; both hide an arithmetic bug in the caller instead of reporting it.',
+    );
+  }
+
   const steps: Step[] = [];
   let remaining = totalMs;
   while (remaining > 0) {
@@ -107,26 +131,50 @@ export function advance(state: GameState, totalMs: number): GameState {
  * before the first tick, so a state that already satisfies it costs zero
  * milliseconds rather than one wasted step.
  *
- * @throws if `predicate` has not held after `maxMs`. This is the loop guard, and
- * it is not optional: `runUntil` is the only construct in the suite that does
- * not terminate on its own, and a regression that stops the queue advancing
- * would otherwise turn a failing assertion into a hung CI job. The message
- * carries the budget, because the first question on reading it is always how
- * long it actually waited.
+ * The budget is never overrun. A `maxMs` that is not a whole multiple of
+ * `TICK_MS` is effectively rounded *down* to one: the loop refuses a tick that
+ * would carry `elapsedMs` past `maxMs`, rather than taking it and noticing
+ * afterwards. So a returned `elapsedMs` is always at most `maxMs`, and the tick
+ * count the failure message quotes never totals more than the budget printed
+ * beside it. Both matter in the ordinary case rather than an exotic one —
+ * `maxMs` is a round wall-clock number a test author picked, `TICK_MS` is not a
+ * divisor of round numbers, and a guard checked after the fact would both return
+ * past the budget on success and, on failure, name a tick count whose total
+ * exceeds the very budget it is quoting.
+ *
+ * @throws if `predicate` has not held within `maxMs`. This is the loop guard,
+ * and it is not optional: `runUntil` is the one construct here whose length the
+ * engine decides, and a regression that stops the queue advancing would
+ * otherwise turn a failing assertion into a hung CI job. The message carries the
+ * budget, because the first question on reading it is always how long it
+ * actually waited.
+ *
+ * @throws if `maxMs` is not finite, for `advance`'s reason: an infinite budget
+ * is a guard that never bites and a `NaN` one fails every comparison, so both
+ * restore exactly the hang the budget exists to remove.
  */
 export function runUntil(
   state: GameState,
   predicate: (candidate: GameState) => boolean,
   maxMs: number,
 ): { state: GameState; elapsedMs: number } {
+  if (!Number.isFinite(maxMs)) {
+    throw new Error(
+      `runUntil: maxMs must be a finite number, received ${String(maxMs)}. ` +
+        'An infinite budget never bites and a NaN one fails every comparison, so ' +
+        'either turns this call back into the hang the guard exists to prevent.',
+    );
+  }
+
   let current = state;
   let elapsedMs = 0;
 
   while (!predicate(current)) {
-    if (elapsedMs >= maxMs) {
+    if (elapsedMs + CONFIG.TICK_MS > maxMs) {
       throw new Error(
         `runUntil: the predicate did not hold within the ${maxMs}ms budget ` +
-          `(${elapsedMs / CONFIG.TICK_MS} ticks of ${CONFIG.TICK_MS}ms). ` +
+          `(${elapsedMs / CONFIG.TICK_MS} ticks of ${CONFIG.TICK_MS}ms, ` +
+          `${elapsedMs}ms simulated; one more would pass the budget). ` +
           'Either the budget is too small or the engine stopped advancing; the ' +
           'guard exists so that the second case fails rather than hangs.',
       );
@@ -141,10 +189,30 @@ export function runUntil(
 /**
  * The stand-in for a property that is present and explicitly `undefined`.
  * `JSON.stringify` drops such a property entirely, which would make an
- * accidental `undefined` indistinguishable from an absent field — one of the two
+ * accidental `undefined` indistinguishable from an absent field — one of the
  * masks `expectSameState` exists to remove.
+ *
+ * This and the `<NaN>` / `<Infinity>` / `<-0>` markers are ordinary strings, so
+ * a *string-valued* field holding that same literal text would be conflated with
+ * a real `undefined` or `NaN`. Unreachable today — every string-typed
+ * `GameState` field is a closed enum union, none of whose members is
+ * angle-bracketed — and worth revisiting the day `GameState` gains a free-form
+ * string, at which point the markers need something unforgeable in them.
  */
 const UNDEFINED_MARKER = '<undefined>';
+
+/**
+ * The stand-in for negative zero, which `JSON.stringify` writes as `0`.
+ *
+ * Without it `expectSameState` would be *weaker* than `toEqual` on this one
+ * axis, which would undercut the module's whole reason for existing: the public
+ * entry point compares canonical serialisations and returns early when they
+ * match, so a `-0`/`0` pair would never reach the `Object.is` walk that does
+ * tell them apart. `-0` is reachable in a `GameState` the moment engine
+ * arithmetic rounds a small negative — `Math.round(-0.4)` is `-0` — so this is a
+ * real mask rather than a theoretical one.
+ */
+const NEGATIVE_ZERO_MARKER = '<-0>';
 
 /**
  * `Array.isArray` narrows `unknown` to `any[]`, which puts `any` into every
@@ -163,13 +231,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * The `JSON.stringify` replacer that makes the serialisation canonical.
  *
- * Three normalisations, each closing a way two different states could otherwise
+ * Four normalisations, each closing a way two different states could otherwise
  * stringify the same:
  *
  * - object keys are emitted in sorted order, so insertion order cannot matter;
  * - an `undefined` value becomes a marker rather than vanishing;
  * - `NaN` and the infinities become markers rather than all collapsing to
- *   `null`, which would make a `NaN` `nextArrivalMs` look like a null one.
+ *   `null`, which would make a `NaN` `nextArrivalMs` look like a null one;
+ * - `-0` becomes a marker rather than being written as `0`, so the serialisation
+ *   is at least as discriminating as `toEqual` on every axis and the `Object.is`
+ *   walk below is not contradicted by the fast path that precedes it.
  *
  * Applied recursively by `JSON.stringify` itself: returning a shallow key-sorted
  * copy is enough, because the replacer is invoked again for every property of
@@ -177,7 +248,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 function canonicalReplacer(_key: string, value: unknown): unknown {
   if (value === undefined) return UNDEFINED_MARKER;
-  if (typeof value === 'number' && !Number.isFinite(value)) return `<${String(value)}>`;
+  if (typeof value === 'number') {
+    if (Object.is(value, -0)) return NEGATIVE_ZERO_MARKER;
+    return Number.isFinite(value) ? value : `<${String(value)}>`;
+  }
   if (!isRecord(value)) return value;
 
   const sorted: Record<string, unknown> = {};
@@ -194,9 +268,16 @@ function canonicalReplacer(_key: string, value: unknown): unknown {
  * Exported because "the call did not mutate its input" is asserted by capturing
  * this before the call and comparing afterwards, and a test cannot capture what
  * it cannot name.
+ *
+ * The fallback is not dead code, even though TypeScript types this call as
+ * returning `string`: `JSON.stringify` genuinely returns `undefined` for a root
+ * that serialises to nothing — a function or a symbol, both of which
+ * `canonicalReplacer` passes through untouched. Unreachable for a `GameState`,
+ * but the parameter is `unknown` and the function is exported, so the declared
+ * `string` should not be a lie for the first caller who points it elsewhere.
  */
 export function canonicalise(state: unknown): string {
-  return JSON.stringify(state, canonicalReplacer);
+  return JSON.stringify(state, canonicalReplacer) ?? `<${typeof state}>`;
 }
 
 /** The first place two values differ, in `queue[1].patienceMs` notation. */
@@ -218,7 +299,11 @@ function labelFor(path: string): string {
  *
  * Returns `null` when the two agree. Descends through arrays by index and
  * objects by key; anything else is compared with `Object.is`, which is what
- * makes `NaN` equal to itself and `0` distinguishable from `-0`.
+ * makes `NaN` equal to itself and `0` distinguishable from `-0`. That second
+ * property is only observable through `expectSameState` because
+ * `canonicalReplacer` gives `-0` its own marker: the public entry point compares
+ * serialisations first and returns early on a match, so a mask closed here and
+ * left open there would never be reached.
  *
  * A container whose children all agree returns `null` even though the two
  * references differ — `Object.is` is a fast path for identity, not the

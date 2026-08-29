@@ -177,6 +177,36 @@ function reverseKeyOrder(value: unknown): unknown {
 const HARNESS_PATH = fileURLToPath(new URL('./harness.ts', import.meta.url));
 const HARNESS_SOURCE = readFileSync(HARNESS_PATH, 'utf8');
 
+/**
+ * Every module specifier a source names, across all five forms that can put a
+ * dependency into the module graph: `import … from 'x'`, `export … from 'x'`,
+ * the side-effect `import 'x'`, the dynamic `import('x')` and `require('x')`.
+ *
+ * A bare `from`-clause scan sees only the first two, which makes "imports only
+ * from `src/game/`" blind to exactly the import a boundary is most likely to be
+ * broken with — a side-effect import of a hand-written fixture, which has no
+ * `from` clause and binds no name.
+ *
+ * `tests/contract/source.ts` already solves this properly, over a lexer that
+ * strips comments first. It is deliberately not imported: Sprint 3.1 owns that
+ * tree and this sprint's declared scope is `tests/support/**`, so a dependency
+ * edge from here into a directory another sprint is actively editing would be
+ * bought for a test that has a cheaper backstop available. That backstop is the
+ * assertion below that the harness contains no `import(` or `require(` at all —
+ * which is what the lexer would otherwise be needed for, since a runtime-built
+ * specifier is invisible to any amount of scanning.
+ */
+function importSpecifiers(source: string): string[] {
+  return [
+    ...source.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g),
+    ...source.matchAll(/(?:^|[\s;}])import\s*['"]([^'"]+)['"]/g),
+    ...source.matchAll(/\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/g),
+  ].map((match) => match[1]);
+}
+
+/** Every module specifier the harness names. */
+const SPECIFIERS = importSpecifiers(HARNESS_SOURCE);
+
 beforeEach(() => {
   recorder.tickDts.length = 0;
 });
@@ -307,6 +337,31 @@ describe('S10-1 advance', () => {
     expect(recorder.tickDts).toEqual([]);
   });
 
+  it(
+    'refuses a non-finite total instead of spinning or silently doing nothing',
+    { timeout: 1000 },
+    () => {
+      const start = makeState();
+
+      // `Infinity - MAX_FRAME_MS` is `Infinity`, so `remaining` never decreases
+      // and the chunk list grows until the process dies. There is no assertion
+      // to make about a call that never returns, so the throw is the test — and
+      // the declared timeout is what turns a regression into a red run rather
+      // than a hung one.
+      expect(() => advance(start, Number.POSITIVE_INFINITY)).toThrow(/finite/);
+      expect(() => advance(start, Number.POSITIVE_INFINITY)).toThrow(/Infinity/);
+      expect(() => advance(start, Number.NEGATIVE_INFINITY)).toThrow(/finite/);
+
+      // The quieter half: `NaN > 0` is false, so the loop body never runs and a
+      // caller who asked for a nonsense duration is told nothing at all.
+      expect(() => advance(start, Number.NaN)).toThrow(/finite/);
+      expect(() => advance(start, Number.NaN)).toThrow(/NaN/);
+
+      // Rejected before any dispatch, not part-way through one.
+      expect(recorder.tickDts).toEqual([]);
+    },
+  );
+
   it('does not mutate the state it is given', () => {
     const start = makeState();
     const before = canonicalise(start);
@@ -370,6 +425,54 @@ describe('S10-1 runUntil', () => {
       expect(recorder.tickDts).toHaveLength(budgetMs / CONFIG.TICK_MS);
     },
   );
+
+  it('stops at the last whole tick inside a budget that is off the tick grid', () => {
+    const start = makeState();
+    // The shape a wall-clock budget actually has: `TICK_MS` does not divide it.
+    // Four of the call sites above pass 1000ms, which is exactly this case.
+    const wholeTicks = 5;
+    const offGrid = wholeTicks * CONFIG.TICK_MS + 1;
+
+    const { elapsedMs } = runUntil(start, (c) => c.score >= wholeTicks, offGrid);
+
+    expect(elapsedMs).toBe(wholeTicks * CONFIG.TICK_MS);
+    expect(elapsedMs).toBeLessThanOrEqual(offGrid);
+  });
+
+  it('gives up rather than taking the tick that would carry it past the budget', () => {
+    const start = makeState();
+    const wholeTicks = 5;
+    const offGrid = wholeTicks * CONFIG.TICK_MS + 1;
+
+    let thrown: unknown;
+    try {
+      // One tick more than the budget affords.
+      runUntil(start, (c) => c.score > wholeTicks, offGrid);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    const message = (thrown as Error).message;
+    expect(message).toContain(`${offGrid}ms budget`);
+
+    // The point of the fix: the tick count the message quotes must not total
+    // more than the budget quoted beside it, or the message contradicts itself
+    // in precisely the situation it exists to explain.
+    const quoted = Number(/\((\d+) ticks/.exec(message)?.[1]);
+    expect(quoted).toBe(wholeTicks);
+    expect(quoted * CONFIG.TICK_MS).toBeLessThanOrEqual(offGrid);
+    expect(recorder.tickDts).toHaveLength(wholeTicks);
+  });
+
+  it('refuses a non-finite budget, which is a guard that never bites', () => {
+    // `elapsedMs + TICK_MS > Infinity` is never true and every comparison with
+    // `NaN` is false, so either value turns the budget back into the hang it
+    // exists to prevent. Rejected at entry, before a single tick.
+    expect(() => runUntil(makeState(), () => false, Number.POSITIVE_INFINITY)).toThrow(/finite/);
+    expect(() => runUntil(makeState(), () => false, Number.NaN)).toThrow(/finite/);
+    expect(recorder.tickDts).toEqual([]);
+  });
 
   it('does not mutate the state it is given', () => {
     const start = makeState();
@@ -448,6 +551,20 @@ describe('S10-1 expectSameState', () => {
     }).toThrow(/serialise differently but compare structurally equal/);
   });
 
+  it('distinguishes -0 from 0, where a naive stringify cannot', () => {
+    // The probe: this is the mask, and it is one `toEqual` does *not* have. A
+    // comparison that claims to be stricter than `toEqual` cannot be looser here.
+    expect(JSON.stringify({ nextArrivalMs: -0 })).toBe(JSON.stringify({ nextArrivalMs: 0 }));
+
+    expect(canonicalise({ nextArrivalMs: -0 })).not.toBe(canonicalise({ nextArrivalMs: 0 }));
+
+    // And it reaches `expectSameState`, whose serialisation fast path is what
+    // would otherwise return early and never consult the `Object.is` walk.
+    expect(() => {
+      expectSameState(makeState({ nextArrivalMs: -0 }), makeState({ nextArrivalMs: 0 }));
+    }).toThrow(/nextArrivalMs/);
+  });
+
   it('a non-finite number is distinguishable from null', () => {
     expect(canonicalise({ nextArrivalMs: Number.NaN })).not.toBe(
       canonicalise({ nextArrivalMs: null }),
@@ -459,17 +576,45 @@ describe('S10-1 expectSameState', () => {
 });
 
 describe('S10-1 the harness import boundary', () => {
-  /** Every module specifier the harness imports or re-exports from. */
-  const specifiers = [...HARNESS_SOURCE.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
-
   it('finds the imports it is about to check, so it cannot pass vacuously', () => {
-    expect(specifiers.length).toBeGreaterThan(0);
-    expect(specifiers).toContain('../../src/game/config');
-    expect(specifiers).toContain('../../src/game/engine');
+    expect(SPECIFIERS.length).toBeGreaterThan(0);
+    expect(SPECIFIERS).toContain('../../src/game/config');
+    expect(SPECIFIERS).toContain('../../src/game/engine');
+  });
+
+  it('sees the import forms a from-clause alone would miss', () => {
+    // The probe for `importSpecifiers` itself: a `from`-clause scan reports the
+    // first two of these and silently ignores the last three, so a side-effect
+    // import of a hand-written fixture would pass the boundary check below
+    // without ever being looked at.
+    const probe = [
+      "import { a } from './from-clause';",
+      "export { b } from './re-export';",
+      "import './side-effect';",
+      "const c = await import('./dynamic');",
+      "const d = require('./commonjs');",
+    ].join('\n');
+
+    expect(importSpecifiers(probe).sort()).toEqual([
+      './commonjs',
+      './dynamic',
+      './from-clause',
+      './re-export',
+      './side-effect',
+    ]);
   });
 
   it('imports only from src/game/', () => {
-    expect(specifiers.filter((s) => !s.startsWith('../../src/game/'))).toEqual([]);
+    expect(SPECIFIERS.filter((s) => !s.startsWith('../../src/game/'))).toEqual([]);
+  });
+
+  it('reaches for nothing at runtime, so no specifier can escape the scan', () => {
+    // A specifier assembled at runtime — `import(base + name)` — is invisible to
+    // any text scan, including `tests/contract/source.ts`'s lexer. What is not
+    // invisible is the syntax that would evaluate one, and the harness has no
+    // business holding either form.
+    expect(HARNESS_SOURCE).not.toMatch(/\bimport\s*\(/);
+    expect(HARNESS_SOURCE).not.toMatch(/\brequire\s*\(/);
   });
 
   it('names no module under the presentation, graphics or dev trees', () => {
