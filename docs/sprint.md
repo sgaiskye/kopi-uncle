@@ -178,7 +178,7 @@ unattended run, and it buys nothing the local server does not already give you.
 | Tier | Sprints | What exists when it lands |
 |---|---|---|
 | **0 — Floor** | 1 | `npm run dev` serves a page, the gate chain runs, every dependency installed. **This must land.** |
-| **1 — Contract** | 2–13 | The frozen seam, CI, the lint rules, tokens, the stub and fixtures — and the fan is visibly running |
+| **1 — Contract** | 2–13 (incl. 3.1) | The frozen seam, CI, the lint rules, tokens, the stub and fixtures — and the fan is visibly running |
 | **2 — Tracks** | 14–35 | Grammar exhaustively verified; the bag and cup render; slot controls and queue cards work against fixtures |
 | **3 — Playable** | 36–46 | Someone can run it locally and play the game |
 | **4 — Ship** | 47–52 | Daily, share, stats, screens, accessibility |
@@ -304,7 +304,7 @@ committed golden fixtures.
 
 ---
 
-## Sprint 3 — The frozen contract [IN PROGRESS]
+## Sprint 3 — The frozen contract [DONE]
 
 **Goal:** Freeze `types.ts`, `config.ts`, `view.ts` and the three engine signatures — everything both tracks compile against — so that every logic and presentation sprint after this one can start from the same fixed surface.
 
@@ -320,12 +320,12 @@ committed golden fixtures.
 **Technical context:** §10.3 warns that `SetSlot` does not narrow on destructuring — `{ slot, value }` widens to `keyof Drink` and a union of all six value types, so `draft[slot] = value` will not compile under `strict`. The generic `setSlot<K extends keyof Drink>` helper is the single place the unavoidable cast is allowed to live.
 
 **Acceptance criteria:**
-- [ ] `src/game/types.ts` declares, verbatim in shape, every type in §10.3: `Phase`, `Mode`, `Tier`, `ShiftId`, `Mood`, `ServeResult`, the seven-variant `GameEvent`, `Drink` and its six slot unions, `Customer`, `GameState` with all twenty fields, the `SetSlot` mapped union, `Action`, and the `setSlot` signature.
-- [ ] A `tests/` type test using `expectTypeOf` asserts `SetSlot` expands to exactly six variants — one assertion per slot, e.g. `Extract<SetSlot, { slot: 'sugar' }>['value']` equals `Sugar` — and asserts `Extract<SetSlot, { slot: 'flavour' }>` is `never`.
-- [ ] A type test asserts `Action['type']` equals the union of exactly seven literals: `'START_RUN' | 'FOCUS' | 'SET_SLOT' | 'SERVE' | 'DISMISS_BREAK' | 'PAUSE' | 'RESUME'`.
-- [ ] Exhaustiveness over `Action` is proven at compile time by a `satisfies never` assignment with no runtime statement, per §10.7's ban on unreachable `default: throw` arms.
-- [ ] `setSlot` is implemented with exactly one cast and is asserted over all 240 valid drinks × six slots to return a new object whose other five slots are strictly equal to the input's.
-- [ ] `npm run test` runs Vitest with typechecking enabled, so a failing `expectTypeOf` assertion is a gate failure; `src/game/types.ts` is in the coverage `exclude` list per §10.7.
+- [x] `src/game/types.ts` declares, verbatim in shape, every type in §10.3: `Phase`, `Mode`, `Tier`, `ShiftId`, `Mood`, `ServeResult`, the seven-variant `GameEvent`, `Drink` and its six slot unions, `Customer`, `GameState` with all **22** fields, the `SetSlot` mapped union, `Action`, and the `setSlot` signature. <!-- Plan text said "twenty"; §10.3 enumerates 22 and the PRD is the contract. Corrected at the Sprint 3 sync (PF-18). -->
+- [x] A `tests/` type test using `expectTypeOf` asserts `SetSlot` expands to exactly six variants — one assertion per slot, e.g. `Extract<SetSlot, { slot: 'sugar' }>['value']` equals `Sugar` — and asserts `Extract<SetSlot, { slot: 'flavour' }>` is `never`.
+- [x] A type test asserts `Action['type']` equals the union of exactly seven literals: `'START_RUN' | 'FOCUS' | 'SET_SLOT' | 'SERVE' | 'DISMISS_BREAK' | 'PAUSE' | 'RESUME'`.
+- [x] Exhaustiveness over `Action` is proven at compile time by a `satisfies never` assignment with no runtime statement, per §10.7's ban on unreachable `default: throw` arms.
+- [x] `setSlot` is implemented with **at most one cast, and only in `setSlot`**, and is asserted over all 240 valid drinks × six slots to return a new object whose other five slots are strictly equal to the input's. <!-- Reworded at the Sprint 3 sync (PF-19). "Exactly one" is unsatisfiable: TS 5.9 relates the computed-key spread to `Drink` unaided, so `as Drink` is flagged by Sprint 2's `@typescript-eslint/no-unnecessary-type-assertion` — the reviewer reproduced this. §10.3's wording is a permission, not a mandate; the shipped code spends zero casts and the test asserts the budget `<= 1`. -->
+- [ ] `npm run test` runs Vitest with typechecking enabled, so a failing `expectTypeOf` assertion is a gate failure; `src/game/types.ts` is in the coverage `exclude` list per §10.7. <!-- Partial: the typecheck-in-test half is met and the reviewer verified it bites (injecting a false `expectTypeOf` reds `npm run test`, not merely `npm run typecheck`). The `exclude` half is deferred to **S8-1**, whose first criterion already requires `exclude` containing `'src/game/types.ts'` — `vitest.config.ts` is Sprint 8's sole `Touches:` path and Sprint 3 may not edit it. Verified present at the Sprint 3 sync. -->
 
 ### S3-2 — `src/game/config.ts` and the three selectors
 
@@ -334,13 +334,13 @@ committed golden fixtures.
 **Technical context:** The shift table is not flat: tea splits tier mid-shift, supper decays patience per customer, and Endless pins `shiftIndex` at 3 while holding both gap and patience at their floors. Those three formulas live in the selectors and nowhere else.
 
 **Acceptance criteria:**
-- [ ] `src/game/config.ts` exports one frozen object holding, at minimum: queue cap 3, hearts 3, `PATIENCE_FLOOR_MS` 2000, wrong-serve penalty fraction 0.35, lockout 600ms, combo step 1 tenth, combo range 10…30 tenths, base points 100, shift-clear bonus 500, `TICK_MS` 16, `MAX_FRAME_MS` 250, and the four-shift table of customer count (6/8/10/10), tier, patience and arrival gaps per §8.5.
-- [ ] `Object.isFrozen` holds for the exported object and for the shift table entries — asserted recursively.
-- [ ] `tierFor` is asserted at customers 1, N and N+1 of every shift: breakfast → 1; lunch → 2; tea → 2 at customer 5 and 3 at customer 6 (the R17-relevant split asserted at both sides of the boundary); supper → 3; and the Endless case `tierFor(3, 11) === 3`.
-- [ ] `gapMsFor` implements §8.5's `gap(i) = start + (end − start) × (i − 1) / (N − 1)` and is asserted at i=1 and i=N for all four shifts (6000→4000, 5000→3000, 4000→2500, 3000→2000 ms), and at i=N+1 where it clamps to the end value; `gapMsFor(3, 11) === 2000` for the Endless floor-held case.
-- [ ] `patienceMsFor` returns constants 18000/16000/14000 for the first three shifts at i=1, N and N+1, and for supper implements the −200ms-per-customer decay with a 10000 floor: 12000 at i=1, 10200 at i=10, 10000 at i=11, and 10000 at i=25 — the Endless floor-held case.
-- [ ] A named test asserts §10.4's single-source rule: the shift-table values (18000, 16000, 14000, 12000, 6000, 5000, 4000, 3000, 2500, 2000) and the fraction 0.35 appear in no file under `src/` or `tests/` other than `src/game/config.ts` — test fixtures included.
-- [ ] `config.ts` reports 100% line coverage under the `perFile: true` threshold.
+- [x] `src/game/config.ts` exports one frozen object holding, at minimum: queue cap 3, hearts 3, `PATIENCE_FLOOR_MS` 2000, wrong-serve penalty fraction 0.35, lockout 600ms, combo step 1 tenth, combo range 10…30 tenths, base points 100, shift-clear bonus 500, `TICK_MS` 16, `MAX_FRAME_MS` 250, and the four-shift table of customer count (6/8/10/10), tier, patience and arrival gaps per §8.5.
+- [x] `Object.isFrozen` holds for the exported object and for the shift table entries — asserted recursively.
+- [x] `tierFor` is asserted at customers 1, N and N+1 of every shift: breakfast → 1; lunch → 2; tea → 2 at customer 5 and 3 at customer 6 (the R17-relevant split asserted at both sides of the boundary); supper → 3; and the Endless case `tierFor(3, 11) === 3`.
+- [x] `gapMsFor` implements §8.5's `gap(i) = start + (end − start) × (i − 1) / (N − 1)` and is asserted at i=1 and i=N for all four shifts (6000→4000, 5000→3000, 4000→2500, 3000→2000 ms), and at i=N+1 where it clamps to the end value; `gapMsFor(3, 11) === 2000` for the Endless floor-held case.
+- [x] `patienceMsFor` returns constants 18000/16000/14000 for the first three shifts at i=1, N and N+1, and for supper implements the −200ms-per-customer decay with a 10000 floor: 12000 at i=1, 10200 at i=10, 10000 at i=11, and 10000 at i=25 — the Endless floor-held case.
+- [x] A named test asserts §10.4's single-source rule: the shift-table values (18000, 16000, 14000, 12000, 6000, 5000, 4000, 3000, 2500, 2000) and the fraction 0.35 appear in no file under `src/` or `tests/` other than `src/game/config.ts` — test fixtures included.
+- [x] `config.ts` reports 100% line coverage under the `perFile: true` threshold.
 
 ### S3-3 — `src/game/view.ts` implemented for real per §10.5
 
@@ -349,26 +349,171 @@ committed golden fixtures.
 **Technical context:** M1a will extend `grammar.ts` and re-export through `view.ts`; it never rewrites what this story freezes. `moodFor` is the single place the patience ratio is computed — §9.6 forbids either track from re-deriving it.
 
 **Acceptance criteria:**
-- [ ] `src/game/view.ts` exports exactly six names — `formatOrder`, `isValidDrink`, `nonDefaultCount`, `moodFor`, `SLOT_ROW_LABELS`, `SLOT_VALUE_LABELS` — asserted by comparing the sorted keys of a namespace import to that list, so nothing leaks into the frozen surface.
-- [ ] `formatOrder` emits §7.2's canonical `Base → Milk → Sugar → Strength → Temperature → Vessel` order with defaults omitted, asserted verbatim against all five §7.2 examples plus §9.3's longest tier-3 order `Teh O kosong gao peng da bao`.
-- [ ] `isValidDrink` enforces §7.3 and nothing else: a sweep over all 288 raw combinations asserts exactly 240 true and 48 false, and asserts `ga-dai` with `condensed` is valid.
-- [ ] `nonDefaultCount` excludes base and returns 0..5; a histogram over the 240 valid drinks asserts §7.4's distribution exactly: `{0: 2, 1: 14, 2: 46, 3: 82, 4: 72, 5: 24}`.
-- [ ] `moodFor` implements §9.6's half-open bands and is unit-tested at exactly `p = 0.60 → 'impatient'` and `p = 0.30 → 'angry'` — both boundaries to the lower band — plus `p = 0.601 → 'calm'` and `patienceMs = 0 → 'angry'`.
-- [ ] `moodFor` with `maxPatienceMs <= 0` returns `'angry'` rather than producing `NaN`; the behaviour is asserted by a test and the ruling is recorded in `docs/sprint.md` per §13's never-ask instruction.
-- [ ] `SLOT_ROW_LABELS` is a `Record<keyof Drink, string>` holding exactly the §9.5 wireframe row labels `BASE`, `MILK`, `SUGAR`, `BREW`, `TEMP`, `TAKE`.
-- [ ] `SLOT_VALUE_LABELS` covers all 16 slot values (2+3+4+3+2+2); a test iterates every slot union and asserts a non-empty, within-slot-unique label exists for each, and that §7.1's spoken forms are used where one exists — `C`, `O`, `siew dai`, `ga dai`, `kosong`, `gao`, `po`, `peng`, `da bao`.
-- [ ] `view.ts` imports nothing from `engine.ts`, React or the DOM — Sprint 7's boundary rule is written against exactly this shape and must be green over it once it lands — and reports 100% line coverage.
-- [ ] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
+- [x] `src/game/view.ts` exports exactly six names — `formatOrder`, `isValidDrink`, `nonDefaultCount`, `moodFor`, `SLOT_ROW_LABELS`, `SLOT_VALUE_LABELS` — asserted by comparing the sorted keys of a namespace import to that list, so nothing leaks into the frozen surface.
+- [x] `formatOrder` emits §7.2's canonical `Base → Milk → Sugar → Strength → Temperature → Vessel` order with defaults omitted, asserted verbatim against all five §7.2 examples plus §9.3's longest tier-3 order `Teh O kosong gao peng da bao`.
+- [x] `isValidDrink` enforces §7.3 and nothing else: a sweep over all 288 raw combinations asserts exactly 240 true and 48 false, and asserts `ga-dai` with `condensed` is valid.
+- [x] `nonDefaultCount` excludes base and returns 0..5; a histogram over the 240 valid drinks asserts §7.4's distribution exactly: `{0: 2, 1: 14, 2: 46, 3: 82, 4: 72, 5: 24}`.
+- [x] `moodFor` implements §9.6's half-open bands and is unit-tested at exactly `p = 0.60 → 'impatient'` and `p = 0.30 → 'angry'` — both boundaries to the lower band — plus `p = 0.601 → 'calm'` and `patienceMs = 0 → 'angry'`.
+- [x] `moodFor` with `maxPatienceMs <= 0` returns `'angry'` rather than producing `NaN`; the behaviour is asserted by a test and the ruling is recorded in `docs/sprint.md` per §13's never-ask instruction. <!-- Behaviour met and asserted (including -1 and negative patience). The sprint-file half was outstanding at merge — the runner was correctly barred from the controller-owned file — and is discharged by the **Rulings recorded** block below, added at the Sprint 3 sync. -->
+- [x] `SLOT_ROW_LABELS` is a `Record<keyof Drink, string>` holding exactly the §9.5 wireframe row labels `BASE`, `MILK`, `SUGAR`, `BREW`, `TEMP`, `TAKE`.
+- [x] `SLOT_VALUE_LABELS` covers all 16 slot values (2+3+4+3+2+2); a test iterates every slot union and asserts a non-empty, within-slot-unique label exists for each, and that §7.1's spoken forms are used where one exists — `C`, `O`, `siew dai`, `ga dai`, `kosong`, `gao`, `po`, `peng`, `da bao`.
+- [x] `view.ts` imports nothing from `engine.ts`, React or the DOM — Sprint 7's boundary rule is written against exactly this shape and must be green over it once it lands — and reports 100% line coverage. <!-- Met. Cycle 1 blocked on the *mechanism*: the check was an exact-equality allowlist (`toEqual(['./types'])`) that Sprint 15's required re-export must break. Rebuilt at cycle 2 as the denylist the criterion asks for, and the reviewer confirmed by standing up the S15-1 shape for real (34/34, was 33/34). -->
+- [x] The full gate passes: `npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e`.
 
 ### S3-4 — `src/game/engine.ts` signatures with NotImplemented bodies
 
 *As a Track A agent, I want the three signatures already committed and typechecked, so that M1a fills bodies rather than negotiating shapes.*
 
 **Acceptance criteria:**
-- [ ] `src/game/engine.ts` exports exactly three names with §10.3's signatures: `createInitialState(mode: Mode, seed: number): GameState`, `tick(state: GameState, dtMs: number): GameState`, `applyAction(state: GameState, action: Action): GameState` — export surface asserted against that exact list.
-- [ ] Each body throws an `Error` whose message contains `NotImplemented` and the M1a story ID that will implement it, so the stub can never be mistaken for a working engine.
-- [ ] A unit test asserts all three throw with a message matching `/NotImplemented/`, which also keeps `engine.ts` at 100% line coverage under the `perFile` threshold from this sprint onward.
-- [ ] `npm run typecheck` is green with the signatures referenced from `src/app/EngineContext.tsx`.
+- [x] `src/game/engine.ts` exports exactly three names with §10.3's signatures: `createInitialState(mode: Mode, seed: number): GameState`, `tick(state: GameState, dtMs: number): GameState`, `applyAction(state: GameState, action: Action): GameState` — export surface asserted against that exact list.
+- [x] Each body throws an `Error` whose message contains `NotImplemented` and the M1a story ID that will implement it, so the stub can never be mistaken for a working engine.
+- [x] A unit test asserts all three throw with a message matching `/NotImplemented/`, which also keeps `engine.ts` at 100% line coverage under the `perFile` threshold from this sprint onward.
+- [ ] `npm run typecheck` is green with the signatures referenced from `src/app/EngineContext.tsx`. <!-- Partial: deferred to **S13-1**, which owns `src/app/EngineContext.tsx` and whose first criterion already requires that module to name the engine — the file does not exist yet and Sprint 3 may not create it. Substituted here by a consumer test reproducing the reducer/clock/bootstrap calls that module will make, which asserts a property that does not retire. Verified present in S13-1 at the Sprint 3 sync. -->
+
+### Rulings recorded (Sprint 3, per §13's never-ask instruction)
+
+S3-3's sixth criterion requires the `moodFor` ruling to be recorded *here*. The
+implementing runner was correctly barred from this controller-owned file, so all
+four rulings from PR #4 are landed at the Sprint 3 sync. Each is reversible in
+the file named beside it.
+
+1. **`moodFor` with `maxPatienceMs <= 0` returns `'angry'`.** Dividing would
+   yield `NaN` or an infinity, and each falls through every `>` comparison to a
+   band chosen by accident. `src/game/view.ts`.
+2. **`GameState` declares §10.3's 22 fields**, not the plan text's "twenty".
+   §10.3 enumerates 22 and the PRD is the contract; `Record<keyof GameState,
+   true>` makes it exhaustive in both directions. `src/game/types.ts`.
+3. **The five slot defaults get a spoken label, not §9.5's `●` glyph.** §9.5's
+   `siew`/`ga` are visual truncations of a button face; `SLOT_VALUE_LABELS` is
+   the accessible name a screen reader must say (§9.7), and S3-3's own criterion
+   mandates `siew dai`/`ga dai`. `src/game/view.ts`.
+4. **The three `config.ts` selectors are total.** `NaN` resolves to the first
+   shift and customer 1; the infinities are left to §8.5's ordered clamps, so
+   `shiftAt(Infinity)` resolves to supper and `tierFor(+Infinity, n) === 3`. A
+   `Number.isFinite` guard was rejected: it would have regressed §8.5's Endless
+   clamp to breakfast, which the reviewer confirmed empirically.
+   `src/game/config.ts`.
+
+---
+
+## Sprint 3.1 — Contract-suite scope repair [NOT STARTED]
+
+**Goal:** Narrow the two Sprint 3 static checks whose blast radius is wider than
+the rule they enforce, so that sprints which have no legal way to edit
+`tests/contract/**` cannot be reddened by them.
+
+**Track:** M0 fan
+**Estimate:** 1.5h augmented
+**Dependencies:** Sprint 3
+**Touches:** `tests/contract/config.test.ts`, `tests/contract/types.test.ts`, `tests/contract/engine.test.ts`, `tests/contract/view.test.ts`, `tests/contract/source.ts`, `tests/contract/source.test.ts`
+
+**Why this sprint exists.** `tests/contract/**` is declared in exactly one
+`Touches:` line in the whole plan — Sprint 3's — and Sprint 3 is now merged. Two
+of its checks scan files that later sprints own and this sprint's own reviewer
+flagged both (PF-14, PF-15). Neither can be fixed by the sprint that trips it,
+and neither belongs in Sprint 54, which is explicitly cuttable: a red gate with
+no legal fix is not a cleanup item. This sprint is deliberately tiny, depends
+only on a merged sprint, and is schedulable in the very next wave.
+
+### S3.1-1 — Scope the §10.4 single-source scan to the surfaces §10.4 governs
+
+*As a presentation-track agent, I want the difficulty-constant scan to stop
+reading my CSS and SVG, so that a `z-index` or an `opacity` cannot red a test in
+a file I am forbidden to edit.*
+
+**Context:** `tests/contract/config.test.ts`'s §10.4 walk collects **every**
+`.ts .tsx .js .jsx .mjs .cjs .css .json .html .svg` file under `src/` and
+`tests/`, excluding only `src/game/config.ts`, `tests/e2e/` and
+`tests/fixtures/`, then fails if any contains the bare integers 18000, 16000,
+14000, 12000, 6000, 5000, 4000, 3000, 2500 or 2000, or the fraction `0.35`. The
+reviewer flagged this in PR #4 cycle 1: "those are all plausible in a CSS token,
+an SVG `viewBox`, a `z-index` or an animation duration in a later presentation
+sprint, which would red a sprint that has nothing to do with difficulty tuning …
+the fix is a narrower scope, not more exclusions." `0.35` is the sharpest case —
+`opacity: 0.35` and `rgba(0, 0, 0, 0.35)` both match, and `0.35s` does not only
+because a trailing word character defeats the lookahead. This is live rather
+than theoretical: Sprints 12, 23, 25, 29, 31, 32, 49 and 50 all write CSS or SVG
+under `src/`, and Sprints 23, 25 and 32 became reachable on Sprint 3's merge.
+
+- [ ] The scan's file set is narrowed to the surfaces §10.4 actually governs —
+      `src/game/**`, `src/dev/**`, `tests/game/**`, `tests/contract/**`,
+      `tests/dev/**` and `tests/support/**` — with `src/game/config.ts`,
+      `tests/e2e/` and `tests/fixtures/` still excluded. `src/app/**`,
+      `src/components/**`, `src/graphics/**`, `src/styles/**` and
+      `tests/presentation/**` and `tests/styles/**` leave the scan.
+- [ ] `src/dev/fixtures.ts` **stays in scope**: S9-1 names this test as its
+      guard, and the module docstring says so. Assert that path is in the
+      collected set by name, so the narrowing cannot silently drop it.
+- [ ] The existing self-bite assertions survive unweakened: the scan still
+      collects more than ten files, still excludes `src/game/config.ts`, still
+      contains `src/game/view.ts` and this test file itself, and the reverse
+      assertion that the same scan finds every banned value *inside*
+      `src/game/config.ts` still passes.
+- [ ] The narrowing is proven to have removed the false-positive surface and
+      nothing else: plant `z-index: 3000` in a scratch file under
+      `src/components/` and `opacity: 0.35` in one under `src/styles/` and show
+      the suite stays green; plant `18000` in a scratch file under `src/game/`
+      and show it reds, naming the file. Both probes removed before commit.
+- [ ] The docstring is rewritten to state the narrowed scope and why, replacing
+      the current claim that "everything else is in scope".
+
+### S3.1-2 — Scope the §10.3 cast budget to `src/game/types.ts`
+
+*As a Track A agent, I want the cast budget enforced where §10.3 puts it, so
+that a justified `!` in `queue.ts` or `scoring.ts` cannot red a test in a file my
+sprint does not own.*
+
+**Context:** S3-1's criterion scopes the budget to `setSlot`, and §10.3's prose
+calls the generic helper "the single place the unavoidable cast lives". A cycle-1
+non-blocker (N2) asked for the scan to be widened to all of `src/game/*.ts`, and
+it was — so the shipped test now fails if **any** file under `src/game/` spends
+more than one cast across three syntaxes including `expr!`. PR #4 cycle 2 raised
+this back as a plan finding: under the global reading, one `map.get(k)!` in
+`queue.ts` or `scoring.ts` reds a gate in `tests/contract/**`, which only Sprint 3
+declares. **The ruling taken at the Sprint 3 sync: the budget is local to
+`src/game/types.ts`.** That is what S3-1 and §10.3 both say; cast discipline in
+every other `src/game/` file is Sprint 2's type-aware linter's job
+(`@typescript-eslint/no-unnecessary-type-assertion`, already at `error`), which
+those sprints own their own files under. Reversible by restoring the glob.
+
+- [ ] The cast-budget scan reads `src/game/types.ts` only; the budget assertion
+      and its `<= 1` bound are otherwise unchanged.
+- [ ] The non-vacuity control is kept and rescoped: appending
+      `const probe = value as Drink;` to `types.ts` must make the scan find
+      `as Drink`, proving the scan reaches the end of the file. Verified by
+      mutation and reverted.
+- [ ] A test asserts the lexer's reach directly: `tests/contract/source.ts` is
+      pointed at exactly `src/game/types.ts` (budget), `src/game/view.ts` and
+      `src/game/engine.ts` (import boundaries) and at nothing else under
+      `src/game/`. This is what retires the residual `startsRegex` hole for
+      `grammar.ts` (PF-16) — Sprint 16's `parseOrder` regexes are never lexed.
+- [ ] Planting a second cast in `types.ts` still reds the gate, and planting one
+      in `config.ts` no longer does. Both verified by mutation and reverted.
+
+### S3.1-3 — DOM-globals checks should read code, not string literals
+
+*As a Track A agent writing prose about the DOM I must not touch, I want the
+purity checks to ignore string literals, so that a docstring cannot red a file I
+do not own.*
+
+**Context:** PR #4 cycle 2 nice-to-have. The DOM-globals denylists in
+`view.test.ts` and `engine.test.ts` call `stripComments` (which retains string
+literals) where `stripCommentsAndStrings` — already exported from the same
+module and already used by the cast scan — is strictly correct: a `document`
+inside a string literal is not a DOM access. The same class as N12, which was
+fixed for the `Date.now`/`Math.random` ban at cycle 3 and left unfixed here.
+Sprint 15 rewrites `view.ts` and Sprint 21 rewrites `engine.ts`; neither owns the
+test that would red on them.
+
+- [ ] The `document` / `window` / `navigator` denylists in
+      `tests/contract/view.test.ts` and `tests/contract/engine.test.ts` read
+      `stripCommentsAndStrings(SOURCE)`.
+- [ ] Both denylists still bite, verified by mutation: `const hasDom = typeof
+      document !== 'undefined'` in `view.ts` reds, and the non-throwing `typeof`
+      form is used deliberately so the probe proves the check rather than a
+      module-load crash.
+- [ ] A string literal containing `document` in a scanned file does **not** red
+      the suite — a positive control for the change itself.
 
 ---
 
@@ -635,7 +780,7 @@ Do not expect a warning in `eslint.config.js` to remind you: the comment beside 
 
 **Track:** M3 (slack-fill)
 **Estimate:** 3.5h augmented
-**Dependencies:** Sprint 5, Sprint 6
+**Dependencies:** Sprint 5, Sprint 6, Sprint 3.1
 **Touches:** `src/app/TitleScreen.tsx`, `src/app/TitleScreen.module.css`, `src/main.tsx`, `tests/e2e/title.spec.ts`
 
 ### S12-1 — Title screen and mode entry
@@ -746,7 +891,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track A (logic)
 **Estimate:** 2h augmented
-**Dependencies:** Sprint 3, Sprint 7
+**Dependencies:** Sprint 3, Sprint 7, Sprint 3.1
 **Touches:** `src/game/rng.ts`, `tests/fixtures/mulberry32.json`, `tests/game/rng.test.ts`
 
 ### S14-1 — mulberry32 with externalised state
@@ -784,7 +929,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track A (logic)
 **Estimate:** 4h augmented
-**Dependencies:** Sprint 3, Sprint 7
+**Dependencies:** Sprint 3, Sprint 7, Sprint 3.1
 **Touches:** `src/game/grammar.ts`, `src/game/view.ts`, `tests/fixtures/all-valid-drinks.json`, `tests/game/grammar.test.ts`
 
 ### S15-1 — Format, validate, match, count, enumerate
@@ -796,8 +941,15 @@ Sprint 40 → Sprint 36 → Sprint 13.
 **Acceptance criteria:**
 - [ ] `src/game/grammar.ts` exports `formatOrder`, `isValidDrink`, `matches`,
       `nonDefaultCount` and `allValidDrinks` with the §7.5 signatures.
-- [ ] `src/game/view.ts` re-exports those four display helpers from `grammar.ts`:
-      a test asserts `Object.is(view.formatOrder, grammar.formatOrder)`,
+- [ ] `src/game/view.ts` re-exports those **three** display helpers from
+      `grammar.ts` — `formatOrder`, `isValidDrink` and `nonDefaultCount`, which are
+      the three this criterion's own `Object.is` assertions name and the only three
+      already inside §10.5's frozen six. `matches` and `allValidDrinks` stay in
+      `grammar.ts` and must **not** reach the view barrel: §10.5 fixes it at exactly
+      six names and `tests/contract/view.test.ts` asserts that exact set, in a file
+      this sprint is forbidden to edit by the criterion below. *(PF-20,
+      disambiguated at the Sprint 3 sync — the plan text said "four".)*
+      A test asserts `Object.is(view.formatOrder, grammar.formatOrder)`,
       `Object.is(view.isValidDrink, grammar.isValidDrink)` and
       `Object.is(view.nonDefaultCount, grammar.nonDefaultCount)`, proving
       re-export rather than reimplementation.
@@ -912,7 +1064,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track A (logic)
 **Estimate:** 3.5h augmented
-**Dependencies:** Sprint 3, Sprint 7
+**Dependencies:** Sprint 3, Sprint 7, Sprint 3.1
 **Touches:** `src/game/scoring.ts`, `tests/game/scoring.test.ts`
 
 ### S17-1 — Integer combo, points, bonus and result precedence
@@ -957,7 +1109,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track A (logic)
 **Estimate:** 4.5h augmented
-**Dependencies:** Sprint 3, Sprint 7, Sprint 10
+**Dependencies:** Sprint 3, Sprint 7, Sprint 10, Sprint 3.1
 **Touches:** `src/game/queue.ts`, `tests/game/queue.test.ts`
 
 ### S18-1 — Arrivals and the gap ramp
@@ -1134,7 +1286,19 @@ Sprint 40 → Sprint 36 → Sprint 13.
 **Track:** Track A (logic)
 **Estimate:** 5h augmented
 **Dependencies:** Sprint 9, Sprint 17, Sprint 18, Sprint 19
-**Touches:** `src/game/engine.ts`, `tests/game/engine.test.ts`
+**Touches:** `src/game/engine.ts`, `tests/game/engine.test.ts`, `tests/contract/engine.test.ts`
+
+**Why it owns `tests/contract/engine.test.ts` (PF-17).** S3-4 required — correctly —
+that the three stub bodies throw `NotImplemented`, and `tests/contract/engine.test.ts`
+asserts exactly that across both modes and all seven `Action` discriminants. **This
+sprint fills those bodies, so it must break those assertions**, and before this sync
+`tests/contract/**` appeared in exactly one `Touches:` line in the whole plan —
+Sprint 3's, which is merged. The path is declared **per-file** rather than as the
+`tests/contract/**` glob, per the precedent PF-5 set, so Sprint 3.1 and this sprint
+cannot collide even if they overlapped — and they cannot, since Sprint 3.1 is in this
+sprint's transitive closure through Sprints 17 and 18. Sprints 41 and 42 also edit
+`src/game/engine.ts` but inherit this ordering (41 → 40 → 36 → 22 → 21, 42 → 41), and
+neither retires an assertion this file makes, so neither needs the path.
 
 ### S21-1 — tick: quantisation and the pipeline
 
@@ -1145,6 +1309,13 @@ Sprint 40 → Sprint 36 → Sprint 13.
 **Acceptance criteria:**
 - [ ] `src/game/engine.ts` exports `tick`, `applyAction` and `createInitialState`
       with the exact §10.3 signatures.
+- [ ] Sprint 3's stub assertions in `tests/contract/engine.test.ts` are **retired,
+      not deleted wholesale**: the `/NotImplemented/` throw assertions go, and the
+      permanent checks in the same file — the §10.3 purity denylist (`Date.now`,
+      `performance.now`, `Math.random`, `setTimeout`), the import-boundary denylist
+      and the three-name export surface — stay green unmodified. Assert the file
+      still fails if any of those three is violated. *(PF-17, drained at the
+      Sprint 3 sync.)*
 - [ ] R20 quantisation: `tick(s, 8)` applies 0 steps and leaves
       `tickRemainderMs === 8`; a second `tick(s, 8)` applies exactly 1 step and
       leaves `tickRemainderMs === 0`; `tick(s, 10000)` applies exactly 625 steps.
@@ -1301,7 +1472,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
-**Dependencies:** Sprint 3, Sprint 5, Sprint 6
+**Dependencies:** Sprint 3, Sprint 5, Sprint 6, Sprint 3.1
 **Touches:** `src/components/slots/**`, `tests/e2e/slots.spec.ts`
 
 ### S23-1 — The six slot rows
@@ -1398,7 +1569,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track B (presentation)
 **Estimate:** 5h augmented
-**Dependencies:** Sprint 3, Sprint 5, Sprint 6
+**Dependencies:** Sprint 3, Sprint 5, Sprint 6, Sprint 3.1
 **Touches:** `src/graphics/**`, `tests/e2e/preview.spec.ts`
 
 ### S25-1 — Plastic bag vessel
@@ -1582,7 +1753,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track B (presentation)
 **Estimate:** 4h augmented
-**Dependencies:** Sprint 3, Sprint 5, Sprint 6, Sprint 9
+**Dependencies:** Sprint 3, Sprint 5, Sprint 6, Sprint 9, Sprint 3.1
 **Touches:** `src/components/queue/**`, `tests/e2e/queue.spec.ts`
 
 ### S29-1 — Queue card structure and order text
@@ -1677,7 +1848,7 @@ Sprint 40 → Sprint 36 → Sprint 13.
 
 **Track:** Track B (presentation)
 **Estimate:** 3h augmented
-**Dependencies:** Sprint 5, Sprint 6, Sprint 9, Sprint 13
+**Dependencies:** Sprint 5, Sprint 6, Sprint 9, Sprint 13, Sprint 3.1
 **Touches:** `src/dev/gallery/**`, `tests/e2e/gallery.spec.ts`
 
 **Why it depends on Sprint 13 (PF-9/PF-10).** The gallery is mounted behind
@@ -1734,7 +1905,7 @@ edge is ordering only.
 
 **Track:** M3 (slack-fill)
 **Estimate:** 3.5h augmented
-**Dependencies:** Sprint 3, Sprint 5
+**Dependencies:** Sprint 3, Sprint 5, Sprint 3.1
 **Touches:** `src/app/HowToPlay.tsx`, `src/app/HowToPlay.module.css`
 
 ### S32-1 — The grammar reference card
@@ -2295,7 +2466,7 @@ wall-clock.
 
 **Track:** M3
 **Estimate:** 4.5h augmented
-**Dependencies:** Sprint 6, Sprint 20, Sprint 48
+**Dependencies:** Sprint 6, Sprint 20, Sprint 48, Sprint 3.1
 **Touches:** `src/components/share/**`, `tests/e2e/share.spec.ts`
 
 ### S49-1 — Emoji grid and clipboard copy
@@ -2325,7 +2496,7 @@ wall-clock.
 
 **Track:** M3
 **Estimate:** 3.5h augmented
-**Dependencies:** Sprint 5, Sprint 48
+**Dependencies:** Sprint 5, Sprint 48, Sprint 3.1
 **Touches:** `src/app/StatsScreen.tsx`, `src/app/StatsScreen.module.css`
 
 ### S50-1 — Stats screen
@@ -2576,6 +2747,104 @@ inside a pull request. Append here; do not fix in place mid-sprint.
 | Sprint 6 (PR #3, cycle 1, nice-to-have) | **PF-12** — `tsconfig.json` is unowned. It is named in exactly one place in this plan — S1-1's `"strict": true` criterion — and **no sprint after Sprint 1 declares it in `Touches:`**. The live symptom the reviewer found: `playwright.config.ts` is absent from `include` (`["src", "tests", "vite.config.ts", "vitest.config.ts"]`) and is typechecked only *transitively*, via `tests/e2e/playwright-config.test.ts`'s import. True today and confirmed under `tsc --noEmit`, but if that import is ever dropped the config leaves `typecheck` silently. Sprint 6 correctly declined to widen its own scope, and every sprint after it would have had to decline for the same reason. | Sprint 54 | **CLOSED** — drained at this sync into a new **S54-4**. Sprint 54 gains `tsconfig.json` in `Touches:` and a `Sprint 6` dependency (free — Sprint 6 is merged). The story does more than add one path: it asserts by test that every root-level `*.config.ts` is matched by `include`, verified by mutation, so the next root config cannot repeat this. Same shape as PF-7 and NB-1 — no owner after the sprint that raised it is what makes the cleanup sprint the fix rather than a deferral. |
 | Sprint 6 sync (2026-08-29), found while verifying PF-11 | **PF-13** — systemic, and the same class as PF-5. **Eight** sprints name component or test files in their acceptance criteria that fall **outside their own `Touches:` line**: 23 (`src/components/SlotSelectors.tsx` vs `src/components/slots/**`), 29 (`QueueCard`/`QueueList`), 30 (`PatienceRing`/`MoodFace`, both vs `src/components/queue/**`), 32 (`src/components/HowToPlay.tsx` vs `src/app/HowToPlay.tsx`), 33 (`src/components/GameScreen.tsx` vs `src/app/GameScreen.tsx`), 35 (`src/components/GameScreen.fixtures.test.tsx` vs `tests/presentation/**`), 49 (`ShareButton` vs `src/components/share/**`) and 50 (`src/components/StatsScreen.tsx` vs `src/app/StatsScreen.tsx`). Each would have created a file the scheduler did not know it owned — the exact merge-collision `Touches:` exists to prevent — and §10.2's per-cluster split, which is what keeps the presentation track from re-serialising against itself, is defeated by a flat `src/components/X.tsx`. | Sprints 23, 29, 30, 32, 33, 35, 49, 50 | **CLOSED** — drained at this sync by the precedent the Sprint 5 sync set on S12-1: **the `Touches:` line wins**, and the criteria were corrected to match it. Ten path strings changed, no `Touches:` line widened, no dependency added, no behaviour altered — every one is a directory prefix correction. Fan-out shape is unchanged. |
 | Sprint 6 (PR #3) — operational, not a plan defect | **OPS-1** — `npm run e2e` binds the **fixed port 4317** with `--strictPort` and `reuseExistingServer: !process.env.CI`, both mandated by S6-1's acceptance criteria and both correct in isolation. Across worktrees they interact badly: two runners entering the gate at once either collide on the port or — silently, and worse — the second **reuses the first worktree's preview server** and asserts against a `dist/` built from different source under a possibly different base path. **Concurrent sprints that both run e2e are unsafe even when their `Touches:` paths are pairwise disjoint**, and this is not expressible as a dependency edge, because every sprint's gate ends in `npm run e2e`. | Every concurrent sprint | **CLOSED** — recorded at this sync in ***Dependencies are executable, and so is Touches* → *Concurrent `npm run e2e` is unsafe***, where the scheduler-facing contract lives, as three rules: never run two e2e stages at once on this machine; set `CI=1` from a worktree so the silent cross-serve becomes a loud port-bind failure; and treat a red e2e naming port 4317 or `EADDRINUSE` as a collision until proven otherwise. S13-2 additionally gains a criterion making `scripts/e2e.mjs` set `CI=1` for the passes it spawns, which closes the silent case in code while leaving S6-1's `!process.env.CI` literal intact. |
+| Sprint 3 (PR #4, cycle 1) | **PF-14** — `tests/contract/config.test.ts`'s §10.4 single-source scan has a blast radius far wider than the rule it enforces. It walks **every** `.ts .tsx .js .jsx .mjs .cjs .css .json .html .svg` file under `src/` and `tests/` — excluding only `src/game/config.ts`, `tests/e2e/` and `tests/fixtures/` — and reds on the bare integers 18000, 16000, 14000, 12000, 6000, 5000, 4000, 3000, 2500, 2000 or the fraction `0.35`. The reviewer: "those are all plausible in a CSS token, an SVG `viewBox`, a `z-index` or an animation duration in a later presentation sprint, which would red a sprint that has nothing to do with difficulty tuning … the fix is a narrower scope, not more exclusions." `0.35` is the sharpest case — `opacity: 0.35` and `rgba(0, 0, 0, 0.35)` both match. `tests/contract/**` had exactly one owner in the whole plan (Sprint 3), so no tripped sprint could fix it. | Sprints 12, 23, 25, 29, 31, 32, 49, 50 | **CLOSED** — drained at this sync into new **Sprint 3.1 / S3.1-1**, which narrows the scan to the surfaces §10.4 governs (`src/game/**`, `src/dev/**`, `tests/game/**`, `tests/contract/**`, `tests/dev/**`, `tests/support/**`) while keeping `src/dev/fixtures.ts` in scope, since S9-1 names this test as its guard. Could not be folded into Sprint 54: that sprint is explicitly cuttable and depends on Sprint 10, and a red gate with no legal fix is not a cleanup item. Ordering: the `Sprint 3.1` edge was added at the eight CSS/SVG chain roots (12, 23, 25, 29, 31, 32, 49, 50); every other presentation sprint inherits it. **Live, not theoretical** — 23, 25 and 32 became reachable on this very merge. |
+| Sprint 3 (PR #4, cycle 2) | **PF-15** — §10.3's cast budget is enforced globally over `src/game/*.ts` but specified locally. S3-1's criterion scopes it to `setSlot` and §10.3 calls the generic helper "the single place the unavoidable cast lives"; a cycle-1 non-blocker (N2) asked for the scan to be widened to the whole directory and it was, across three syntaxes including `expr!`. Under the global reading one `map.get(k)!` in `queue.ts` or `scoring.ts` reds a gate in `tests/contract/**`, which only Sprint 3 declared. The reviewer explicitly routed the choice to the plan: "worth one sentence in the plan before M1a". | Sprints 14, 15, 17, 18, 19, 20, 21, 41, 42 | **CLOSED** — **ruled** at this sync under standing instruction 1, not escalated. **The ruling: the budget is local to `src/game/types.ts`**, which is what S3-1 and §10.3 both actually say. Cast discipline elsewhere under `src/game/` is Sprint 2's type-aware linter's job — `@typescript-eslint/no-unnecessary-type-assertion` is already at `error` and each sprint owns its own file under it — so nothing is lost, and it is reversible by restoring the glob. Landed as **S3.1-2**; the `Sprint 3.1` edge was added at the four logic roots (14, 15, 17, 18), and 19, 20, 21, 41, 42 all inherit it. |
+| Sprint 3 (PR #4, cycle 3) | **PF-16** — one residual hole in `tests/contract/source.ts`'s `startsRegex`: postfix `++`/`--` is not in the "expression can end here" set, so `i++ / 2 / 3` silently lexes `/ 2 /` as a regex and empties it. Bounded (same line only, and none of the four frozen files uses a postfix operator), but the reviewer flagged it "for whoever writes `grammar.ts`" — Sprint 16's `parseOrder`, which is where regexes actually arrive, and which does not own `tests/contract/**`. | Sprint 16 | **CLOSED** — retired by **PF-15's fix rather than patched**. Scoping the cast budget to `types.ts` removes `src/game/grammar.ts` from the lexer's reach entirely: after S3.1-2 the lexer reads exactly `types.ts` (budget), `view.ts` and `engine.ts` (import boundaries), and S3.1-2 carries a criterion asserting that reach directly. Sprint 16's regexes are never lexed, so the hole is unreachable. No `Sprint 3.1` edge was added to Sprint 16 — it inherits one through Sprint 15. |
+| Sprint 3 (PR #4, cycle 1) | **PF-17** — `tests/contract/**` appeared in exactly one `Touches:` line in all 54 sprints, and Sprint 21 is required to break what it asserts. S3-4 correctly mandated that the three stub bodies throw `NotImplemented`, and `tests/contract/engine.test.ts` asserts that across both modes and all seven `Action` discriminants; Sprint 21 fills those bodies. Its `Touches:` was `src/game/engine.ts`, `tests/game/engine.test.ts` — an undeclared collision with a sprint that merged 18 sprints earlier. Sprints 41 and 42 also edit `engine.ts`. | Sprint 21 (and 41, 42 checked) | **CLOSED** — drained at this sync. Sprint 21's `Touches:` gains `tests/contract/engine.test.ts` **per-file**, per PF-5's precedent, and S21-1 gains a criterion requiring the stub assertions to be *retired, not the file gutted*: the §10.3 purity denylist, the import-boundary denylist and the three-name export surface must stay green and must still bite. Sprints 41 and 42 were checked and need nothing — neither retires an assertion the file makes, and both inherit Sprint 21's ordering (41 → 40 → 36 → 22 → 21, 42 → 41). No edge was added; Sprint 3.1 is already in Sprint 21's closure through Sprints 17 and 18. |
+| Sprint 3 (PR #4, cycle 1) | **PF-18** — S3-1's plan text says `GameState` has "all twenty fields"; §10.3 enumerates 22, and the implementation follows the PRD. | Sprint 3 (plan text) | **CLOSED** — corrected in place at this sync; the criterion now says 22 and carries the reason inline, so the next reader does not re-litigate it. Also recorded as ruling 2 in Sprint 3's **Rulings recorded** block. |
+| Sprint 3 (PR #4, cycle 1) | **PF-19** — S3-1's "exactly one cast" is unsatisfiable under TS 5.9 plus Sprint 2's linter. The reviewer verified it: adding `as Drink` to `setSlot` makes `@typescript-eslint/no-unnecessary-type-assertion` report "This assertion is unnecessary", so spending the budget hands Sprint 2's linter a red gate. §10.3's wording is a *permission* ("the single place the unavoidable cast **is allowed to live**"), not a mandate. | Sprint 3 (plan text) | **CLOSED** — reworded in place at this sync to "at most one cast, and only in `setSlot`", which is the property that can actually hold for the life of the file. The shipped code spends zero and the test asserts the budget `<= 1`. |
+| Sprint 3 (PR #4, cycles 1 and 3) | **PF-20** — S15-1's text is ambiguous about how many names `view.ts` re-exports. It says "re-exports those **four** display helpers" but its own `Object.is` criteria name only three, while `grammar.ts` is specified to export five. §10.5 fixes the view barrel at exactly six names and `tests/contract/view.test.ts` asserts that exact set — in a file S15-1 is explicitly forbidden to edit (`git diff --exit-code`). Under the loose reading (`matches` or `allValidDrinks` reaching the barrel) the surface grows to seven and Sprint 15 reds a test it may not touch. Raised twice: cycle 1 and again at cycle 3, which noted this is **not** the B1 class — the import list was never part of §10.5's frozen surface, whereas the export list is precisely what §10.5 freezes, so pinning it exactly is a faithful encoding of the contract. | Sprint 15 | **CLOSED** — disambiguated in place at this sync to **three** — `formatOrder`, `isValidDrink`, `nonDefaultCount` — with `matches` and `allValidDrinks` explicitly required to stay in `grammar.ts` and out of the barrel, and the reason stated inline. The assertion in `view.test.ts` stands unchanged; it is correct. |
+| Sprint 3 (PR #4, cycle 1) | **PF-21** — S3-3's sixth criterion requires the `moodFor` ruling to be recorded in `docs/sprint.md` per §13's never-ask instruction, and the implementing runner was correctly barred from this controller-owned file. Three rulings from cycle 1 plus one from cycle 2 were therefore recorded only in the PR body, the function docstrings and the tests. | Sprint 3 (this file) | **CLOSED** — all four landed at this sync in Sprint 3's **Rulings recorded** block: `moodFor` at `maxPatienceMs <= 0`; `GameState`'s 22 fields; spoken labels rather than §9.5's glyph for the five slot defaults; and the three `config.ts` selectors' totality, including the ruling that a `Number.isFinite` guard was *rejected* because it would have regressed §8.5's Endless clamp to breakfast. S3-3's criterion is now met and is checked `[x]`. |
+| Sprint 3 (PR #4, cycle 1) | **PF-22** — two S3 criteria were deferred to sprints that own the file. S3-1's coverage-`exclude` half names `vitest.config.ts` (Sprint 8's sole `Touches:` path); S3-4's typecheck criterion names `src/app/EngineContext.tsx`, which does not exist yet (Sprint 13). | Sprints 8, 13 | **CLOSED — already resolved, no edit needed.** Verified against the current file at this sync: S8-1's first criterion already requires `exclude` containing `'src/game/types.ts'`, and S13-1's first criterion already requires `EngineContext.tsx` to name the engine. Both S3 criteria stay `[ ]` with an inline note naming the owner, so the deferral is visible rather than silently dropped. Row kept so the next reader does not re-raise it. |
+| Sprint 3 (PR #4, cycle 2, nice-to-have) | **NB-4** — not a plan finding: an orphaned code improvement. The DOM-globals denylists in `tests/contract/view.test.ts` and `tests/contract/engine.test.ts` call `stripComments` (string literals retained) where `stripCommentsAndStrings`, already exported from the same module and already used by the cast scan, is strictly correct — a `document` inside a string literal is not a DOM access. Same class as N12, which *was* fixed for the `Date.now`/`Math.random` ban at cycle 3 and left unfixed here. Sprint 15 rewrites `view.ts` and Sprint 21 rewrites `engine.ts`. | Sprint 3.1 | **CLOSED** — drained at this sync into **S3.1-3** rather than Sprint 54, because it lives in the same two files S3.1-1 and S3.1-2 already open and would otherwise need a second, cuttable owner for `tests/contract/**`. |
+
+**Drainage log — Sprint 3 sync (2026-08-29).** Sprint 3 merged as PR #4
+(`8f87d23`) after **three review cycles**. Cycle 1 raised two blockers, both the
+same one-line shape and both resolved at cycle 2; cycle 2 raised four scanner
+non-blockers (N9–N12), all four resolved at cycle 3; cycle 3 found **zero
+blockers and zero non-blockers** and confirmed every cycle-2 fix by mutating the
+real files and watching the gate move, rather than by reading the diff. **21 of
+Sprint 3's 27 acceptance criteria are met outright**, four more are met with the
+mechanism corrected mid-review, and **two remain `[ ]`** — both deferred to
+sprints that own the file, both verified at this sync to be covered there
+(PF-22), and both left unchecked with an inline note so the deferral stays
+visible. **No followup sub-sprint 3.1-for-carried-work was needed**; Sprint 3.1
+exists for a different reason, below.
+
+**The two blockers are worth reading, because they name the defect class this
+plan treats as blocking.** Both were exact-equality assertions —
+`expect(specifiers).toEqual(['./types'])` — describing the *current* import shape
+of the frozen seam, in `tests/contract/**`, which no later sprint owned. Sprint 15
+must add `from './grammar'` to `view.ts` and is explicitly forbidden to edit the
+M0 view test; Sprint 21 must add `from './config'` to `engine.ts` because §10.4
+forbids restating a §8 constant. The reviewer verified both by standing up the
+future-sprint shape for real (under the S15-1 shape, exactly 1 of 34 assertions
+failed — the other 33 survived, which is what made it one line rather than a
+design problem). Both were rebuilt at cycle 2 as the *denylists* the criteria
+actually ask for, and the reviewer planted against both to confirm they still
+bite.
+
+**Nine plan findings were raised and all nine are resolved in this file**, per
+standing instruction 6. Four are edits in place (PF-18, PF-19, PF-20, PF-21),
+two are verify-only rows kept so nobody re-raises them (PF-16, PF-22), one is an
+ownership fix on Sprint 21 (PF-17), and two created **Sprint 3.1** (PF-14,
+PF-15).
+
+**PF-14 is the load-bearing one, and it is live rather than theoretical.**
+`tests/contract/config.test.ts`'s §10.4 single-source scan walks every text file
+under `src/` and `tests/` — CSS and SVG included — and reds on ten bare integers
+and the fraction `0.35`. `opacity: 0.35`, `rgba(0, 0, 0, 0.35)` and `z-index:
+3000` all match. Eight sprints write CSS or SVG under `src/`, and **three of them
+— 23, 25 and 32 — became reachable on this very merge**. None of them could have
+fixed it: before this sync `tests/contract/**` appeared in exactly one `Touches:`
+line in all 54 sprints, and that sprint is now merged. The reviewer's own
+prescription was taken — "the fix is a narrower scope, not more exclusions" — so
+S3.1-1 scopes the scan to the surfaces §10.4 governs and keeps
+`src/dev/fixtures.ts` in it by name, since S9-1 relies on this test as its guard.
+
+**PF-15 is the same shape in the other track, and it was ruled rather than
+escalated.** The cast budget is specified locally (S3-1 and §10.3 both scope it
+to `setSlot`) but a cycle-1 non-blocker widened its enforcement to all of
+`src/game/*.ts`, across three syntaxes including `expr!`. Under the global
+reading a single justified `map.get(k)!` in `queue.ts` or `scoring.ts` reds a
+gate in a file that sprint may not touch. The ruling: **the budget is local to
+`src/game/types.ts`**, which is what the plan and the PRD both say. Nothing is
+lost — Sprint 2's `@typescript-eslint/no-unnecessary-type-assertion` already
+polices casts everywhere else at `error`, and each sprint owns its own file under
+it — and it is reversible by restoring the glob. It also retires **PF-16** for
+free: narrowing the budget takes `grammar.ts` out of the lexer's reach entirely,
+so the residual `startsRegex` hole the reviewer flagged for Sprint 16's
+`parseOrder` becomes unreachable.
+
+**Why Sprint 3.1 rather than Sprint 54.** Sprint 54 is marked out-of-tier and
+cuttable, and it depends on Sprint 10. A gate that reds with no legal fix is not
+a cleanup item and cannot sit behind a cuttable sprint. Sprint 3.1 depends only
+on merged Sprint 3, carries three small stories, and is schedulable in the very
+next wave — so the twelve `Sprint 3.1` edges cost at most one small sprint of
+latency, once, at the head of each track. Edges were added at chain roots only:
+12, 23, 25, 29, 31, 32, 49, 50 for S3.1-1 and 14, 15, 17, 18 for S3.1-2.
+Everything downstream inherits. Sprint 3.1 depends on nothing but a merged
+sprint, so it cannot introduce a cycle.
+
+**PF-17 gives `tests/contract/**` its second owner.** Sprint 21 must break the
+`NotImplemented` stub assertions S3-4 correctly required, and had no declaration
+for the file holding them. It gains `tests/contract/engine.test.ts` **per-file**,
+per PF-5's precedent, plus a criterion requiring those assertions to be *retired,
+not the file gutted* — the purity denylist, the import-boundary denylist and the
+export surface must stay green and must still bite. Sprints 41 and 42 were
+checked and need nothing.
+
+**One judgement call went the implementer's way and was verified rather than
+accepted.** S3-1 said "exactly one cast"; the implementation spends zero. The
+reviewer added `as Drink` and ran `@typescript-eslint/no-unnecessary-type-assertion`
+under the real tsconfig, which reported the assertion unnecessary — so spending
+the budget would have handed Sprint 2's linter a red gate. The criterion is
+reworded to "at most one cast" (PF-19) rather than the code being changed to
+satisfy prose that cannot hold.
+
+**No new Questions and no unanswered Questions.** All nine plan findings from this
+review are closed in this file; none was escalated to a human, and none is
+awaiting an answer.
 
 **Drainage log — Sprint 6 sync (2026-08-29).** Sprint 6 merged as PR #3
 (`18c0f30`) with **zero blockers and zero non-blockers at cycle 2, and all six
